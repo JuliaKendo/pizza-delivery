@@ -97,6 +97,7 @@ def load_addresses(motlin_token, filename, pizzeria_model):
 
 def create_parser():
     parser = argparse.ArgumentParser(description='Параметры запуска скрипта')
+    parser.add_argument('-m', '--models', default='models.json', help='Путь к *.json файлу с описанием моделей')
     parser.add_argument('-p', '--products', default='', help='Путь к *.json файлу с продуктами который необходимо загрузить')
     parser.add_argument('-a', '--address', default='', help='Путь к *.json файлу с адресами который необходимо загрузить')
     return parser
@@ -114,10 +115,11 @@ def main():
     os.makedirs(TEMPORARY_IMAGE_FOLDER, exist_ok=True)
 
     try:
+        models = motlin_models.get_models(motlin_token, args.models)
         if args.products:
             load_products(motlin_token, args.products)
         if args.address:
-            pizzeria_model = motlin_models.initialize_model(motlin_token)
+            pizzeria_model = [model for model in models if model['flow_slug'] == 'pizzeria'][0]
             load_addresses(motlin_token, args.address, pizzeria_model)
     except OSError as error:
         print(f'Ошибка загрузки файла: {error}')

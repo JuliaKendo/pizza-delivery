@@ -235,7 +235,7 @@ def add_new_field(access_token, flow_id, field_characteristics):
         'data': {
             'type': 'field',
             'name': field_characteristics['name'],
-            'slug': field_characteristics['name'].lower(),
+            'slug': field_characteristics['slug'],
             'description': field_characteristics['description'],
             'field_type': field_characteristics['type'],
             'enabled': True,

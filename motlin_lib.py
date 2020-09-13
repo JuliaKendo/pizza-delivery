@@ -37,15 +37,19 @@ def get_item_id(access_token, item_type, **kwargs):
     return found_item[0] if found_item else None
 
 
-def get_products(access_token, page=0, limit_products_per_page=0):
+def get_products(access_token, offset=0, limit_products_per_page=0):
     response = requests.get(
-        'https://api.moltin.com/v2/products?page[limit]=%s&page[offset]=%s' % (limit_products_per_page, page),
+        'https://api.moltin.com/v2/products?page[limit]=%s&page[offset]=%s' % (limit_products_per_page, offset),
         headers={'Authorization': access_token}
     )
 
     response.raise_for_status()
     products = response.json()
-    return products['data'], products['meta']['page']['total']
+    return (
+        products['data'],
+        products['meta']['page']['total'],
+        products['meta']['page']['current']
+    )
 
 
 def add_new_product(access_token, product_characteristic):
@@ -118,7 +122,7 @@ def get_product_info(access_token, product_id):
         get_quantity_product_in_stock(access_token, product_id)
     )
     return (
-        f'<b>{name}</b>\n\n{currency} {amount} за kg\n{quantity}kg на складе\n\n<i>{description}</i>',
+        f'<b>{name}</b>\n\nстоимость: {amount} {currency}\n\n<i>{description}</i>',
         product_image
     )
 
@@ -150,16 +154,20 @@ def get_cart_items(access_token, cart_id):
 def get_cart_info(access_token, cart_id):
     cart_info = []
     for cart_item in get_cart_items(access_token, cart_id):
-        name, description, price, quantity, amount = (
+        name, description, quantity, amount = (
             cart_item['name'],
             cart_item['description'],
-            cart_item['meta']['display_price']['with_tax']['unit']['formatted'],
             cart_item['quantity'],
             cart_item['meta']['display_price']['with_tax']['value']['formatted']
         )
-        cart_info.append(f'<b>{name}</b>\n<i>{description}</i>\n{price} за kg\n{quantity}kg в корзине: {amount}')
+        cart_info.append(f'<b>{name}</b>\n<i>{description}</i>\n{quantity} шт. на сумму: {amount}')
     cart_info.append(get_cart_amount(access_token, cart_id))
     return '\n\n'.join(cart_info)
+
+
+def get_quantity_product_in_cart(access_token, cart_id, product_id):
+    quantity_in_cart = [cart_item['quantity'] for cart_item in get_cart_items(access_token, cart_id) if cart_item['id'] == product_id]
+    return quantity_in_cart[0] if quantity_in_cart else 0
 
 
 def get_cart_amount(access_token, cart_id):
@@ -282,3 +290,12 @@ def update_entry(access_token, flow_slug, entry_id, fields):
         json=data
     )
     response.raise_for_status()
+
+
+def get_entries(access_token, flow_slug):
+    url = f'https://api.moltin.com/v2/flows/{flow_slug}/entries'
+    entries = execute_get_request(
+        url,
+        {'Authorization': access_token}
+    )
+    return [{'address': entry['address'], 'longitude': entry['longitude'], 'latitude': entry['latitude']} for entry in entries]

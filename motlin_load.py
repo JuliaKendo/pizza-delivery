@@ -73,33 +73,35 @@ def load_products(motlin_token, filename):
 def load_addresses(motlin_token, filename, pizzeria_model):
 
     with open(filename, 'r') as file_handler:
-        addresses = json.load(file_handler)
+        for address in tqdm(json.load(file_handler), desc="Загружено", unit="адресов"):
+            save_address(
+                motlin_token,
+                pizzeria_model['flow_slug'],
+                'address',
+                address['address']['full'],
+                address={
+                    'address': address['address']['full'],
+                    'alias': address['alias'],
+                    'longitude': address['coordinates']['lon'],
+                    'latitude': address['coordinates']['lat'],
+                    'telegramid': 741049472
+                }
+            )
 
-    for address in tqdm(addresses, desc="Загружено", unit="адресов"):
-        fields = {
-            'address': address['address']['full'],
-            'alias': address['alias'],
-            'longitude': address['coordinates']['lon'],
-            'latitude': address['coordinates']['lat']
-        }
-        entry_id = motlin_lib.get_item_id(
-            motlin_token,
-            'entries',
-            slug=pizzeria_model['flow_slug'],
-            field='address',
-            value=address['address']['full']
-        )
-        if entry_id:
-            motlin_lib.update_entry(motlin_token, pizzeria_model['flow_slug'], entry_id, fields)
-        else:
-            motlin_lib.add_new_entry(motlin_token, pizzeria_model['flow_slug'], fields)
+
+def save_address(motlin_token, slug, field, value, address):
+    entry_id = motlin_lib.get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
+    if entry_id:
+        motlin_lib.update_entry(motlin_token, slug, entry_id, address)
+    else:
+        motlin_lib.add_new_entry(motlin_token, slug, address)
 
 
 def create_parser():
     parser = argparse.ArgumentParser(description='Параметры запуска скрипта')
     parser.add_argument('-m', '--models', default='models.json', help='Путь к *.json файлу с описанием моделей')
     parser.add_argument('-p', '--products', default='', help='Путь к *.json файлу с продуктами который необходимо загрузить')
-    parser.add_argument('-a', '--address', default='', help='Путь к *.json файлу с адресами который необходимо загрузить')
+    parser.add_argument('-a', '--address', default='addresses.json', help='Путь к *.json файлу с адресами который необходимо загрузить')
     return parser
 
 

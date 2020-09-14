@@ -4,6 +4,7 @@ import logging
 import logger_tools
 
 import motlin_lib
+import motlin_load
 import os
 import redis_lib
 
@@ -12,8 +13,9 @@ from dotenv import load_dotenv
 
 from telegram.ext import Filters, Updater
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
-from tg_bot_events import add_product_to_cart, confirm_email, confirm_deliviry
-from tg_bot_events import show_store_menu, show_product_card
+from tg_bot_events import add_product_to_cart
+from tg_bot_events import find_nearest_address, confirm_email, confirm_deliviry
+from tg_bot_events import show_store_menu, show_product_card, show_delivery_messages
 from tg_bot_events import show_products_in_cart, finish_order
 
 from validate_email import validate_email
@@ -40,13 +42,14 @@ class TgDialogBot(object):
         self.updater.start_polling()
 
     def handle_geodata(self, bot, update):
-        self.states_functions['HANDLE_WAITING'](
+        next_state = self.states_functions['HANDLE_WAITING'](
             bot,
             update,
             motlin_token=self.motlin_token,
             redis_conn=self.redis_conn,
             ya_api_key=self.ya_api_key
         )
+        self.redis_conn.add_value(update.message.chat_id, 'state', next_state)
 
     def update_motlin_token(self):
         if self.token_expires < datetime.now().timestamp():
@@ -75,9 +78,9 @@ class TgDialogBot(object):
         next_state = state_handler(
             bot,
             update,
-            motlin_token=self.motlin_token,
-            redis_conn=self.redis_conn,
-            ya_api_key=self.ya_api_key
+            self.motlin_token,
+            self.redis_conn,
+            self.ya_api_key
         )
         self.redis_conn.add_value(chat_id, 'state', next_state)
 
@@ -85,13 +88,15 @@ class TgDialogBot(object):
         logger.exception(f'Ошибка бота: {error}')
 
 
-def start(bot, update, motlin_token, redis_conn, ya_api_key):
+def start(bot, update, *args):
+    motlin_token, redis_conn = args[:2]
     current_page = redis_conn.get_value(update.message.chat_id, 'current_page')
     show_store_menu(bot, update.message.chat_id, motlin_token, page=current_page)
     return 'HANDLE_MENU'
 
 
-def handle_menu(bot, update, motlin_token, redis_conn, ya_api_key):
+def handle_menu(bot, update, *args):
+    motlin_token, redis_conn = args[:2]
     query = update.callback_query
     chat_id = query.message.chat_id
     if query.data == str(chat_id):
@@ -112,7 +117,8 @@ def handle_menu(bot, update, motlin_token, redis_conn, ya_api_key):
         return 'HANDLE_DESCRIPTION'
 
 
-def handle_description(bot, update, motlin_token, redis_conn, ya_api_key):
+def handle_description(bot, update, *args):
+    motlin_token, redis_conn = args[:2]
     query = update.callback_query
     chat_id = query.message.chat_id
     if query.data == 'HANDLE_MENU':
@@ -127,7 +133,8 @@ def handle_description(bot, update, motlin_token, redis_conn, ya_api_key):
         return 'HANDLE_DESCRIPTION'
 
 
-def handle_cart(bot, update, motlin_token, redis_conn, ya_api_key):
+def handle_cart(bot, update, *args):
+    motlin_token, redis_conn = args[:2]
     query = update.callback_query
     chat_id = query.message.chat_id
     if query.data == 'HANDLE_MENU':
@@ -143,7 +150,8 @@ def handle_cart(bot, update, motlin_token, redis_conn, ya_api_key):
         return 'HANDLE_CART'
 
 
-def waiting_email(bot, update, motlin_token, redis_conn, ya_api_key):
+def waiting_email(bot, update, *args):
+    motlin_token, redis_conn = args[:2]
     query = update.callback_query
     if query and query.data == 'HANDLE_MENU':
         finish_order(bot, query.message.chat_id, query.message.message_id)
@@ -161,7 +169,8 @@ def waiting_email(bot, update, motlin_token, redis_conn, ya_api_key):
         return 'WAITING_EMAIL'
 
 
-def handle_waiting(bot, update, motlin_token, redis_conn, ya_api_key):
+def handle_waiting(bot, update, *args):
+    motlin_token, redis_conn, ya_api_key = args
     query = update.callback_query
     if query and query.data == 'HANDLE_MENU':
         finish_order(bot, query.message.chat_id, query.message.message_id)
@@ -173,13 +182,59 @@ def handle_waiting(bot, update, motlin_token, redis_conn, ya_api_key):
         longitude, latitude = None, None
         if update.message.text:
             longitude, latitude = geo_lib.fetch_coordinates(ya_api_key, update.message.text)
+            customer_address = update.message.text
         elif update.message.location:
             longitude, latitude = update.message.location.longitude, update.message.location.latitude
+            customer_address = geo_lib.fetch_address(ya_api_key, longitude, latitude)
         if not longitude == latitude is None:
-            confirm_deliviry(bot, update.message.chat_id, motlin_token, longitude, latitude)
+            nearest_address = find_nearest_address(motlin_token, longitude, latitude)
+            confirm_deliviry(bot, update.message.chat_id, motlin_token, nearest_address)
+            redis_conn.add_value(update.message.chat_id, 'nearest_pizzeria', nearest_address['address'])
+            motlin_load.save_address(
+                motlin_token,
+                'customeraddress',
+                'customerid',
+                str(update.message.chat_id),
+                address={
+                    'address': customer_address,
+                    'longitude': longitude,
+                    'latitude': latitude,
+                    'customerid': str(update.message.chat_id)
+                }
+            )
         else:
             bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректную геопозицию. Поробуйте еще раз:')
-        return 'HANDLE_WAITING'
+        return 'HANDLE_DELIVERY'
+
+
+def handle_delivery(bot, update, *args):
+    motlin_token, redis_conn, ya_api_key = args
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    pizzeria_address = motlin_lib.get_address(
+        motlin_token,
+        'pizzeria',
+        'address',
+        redis_conn.get_value(chat_id, 'nearest_pizzeria')
+    )
+    if query.data == 'HANDLE_DELIVERY':
+        customer_address = motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', str(chat_id))
+        if pizzeria_address and customer_address:
+            show_delivery_messages(
+                bot,
+                chat_id,
+                pizzeria_address['telegramid'],
+                motlin_token,
+                customer_address['latitude'],
+                customer_address['longitude']
+            )
+        return query.data
+    else:
+        if pizzeria_address:
+            bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
+        message = f'Благодарим за заказ. После оплаты вы сможете забрать его по адресу: {pizzeria_address["address"]}'
+        bot.send_message(chat_id=chat_id, text=message)
+        return 'HANDLE_DELIVERY'
 
 
 def launch_store_bot(states_functions, motlin_params):
@@ -218,7 +273,8 @@ def main():
         'HANDLE_DESCRIPTION': handle_description,
         'HANDLE_CART': handle_cart,
         'WAITING_EMAIL': waiting_email,
-        'HANDLE_WAITING': handle_waiting
+        'HANDLE_WAITING': handle_waiting,
+        'HANDLE_DELIVERY': handle_delivery
     }
 
     motlin_params = {

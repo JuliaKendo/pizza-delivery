@@ -16,6 +16,17 @@ def fetch_coordinates(apikey, place):
         return None, None
 
 
+def fetch_address(apikey, longitude, latitude):
+    base_url = "https://geocode-maps.yandex.ru/1.x"
+    params = {"geocode": f'{longitude},{latitude}', "apikey": apikey, "format": "json"}
+    response = requests.get(base_url, params=params)
+    response.raise_for_status()
+    places_found = response.json()['response']['GeoObjectCollection']['featureMember']
+    if places_found:
+        most_relevant = places_found[0]
+        return most_relevant['GeoObject']['name']
+
+
 def calculate_distance(addresses, longitude, latitude):
     for address in addresses:
         address['distance'] = distance.distance((longitude, latitude), (address['longitude'], address['latitude'])).km

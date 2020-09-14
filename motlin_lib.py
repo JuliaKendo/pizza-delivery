@@ -175,7 +175,7 @@ def get_cart_amount(access_token, cart_id):
         f'https://api.moltin.com/v2/carts/{cart_id}',
         headers={'Authorization': access_token}
     )
-    return 'Итого: %s' % cart_price['meta']['display_price']['with_tax']['formatted']
+    return 'Всего к оплате: %s' % cart_price['meta']['display_price']['with_tax']['formatted']
 
 
 def add_new_customer(access_token, email):
@@ -299,3 +299,17 @@ def get_entries(access_token, flow_slug):
         {'Authorization': access_token}
     )
     return [{'address': entry['address'], 'longitude': entry['longitude'], 'latitude': entry['latitude']} for entry in entries]
+
+
+def get_entry(access_token, flow_slug, entry_id):
+    url = f'https://api.moltin.com/v2/flows/{flow_slug}/entries/{entry_id}'
+    return execute_get_request(
+        url,
+        {'Authorization': access_token}
+    )
+
+
+def get_address(motlin_token, slug, field, value):
+    entry_id = get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
+    if entry_id:
+        return get_entry(motlin_token, slug, entry_id)

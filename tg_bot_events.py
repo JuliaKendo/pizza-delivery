@@ -62,10 +62,10 @@ def get_cart_menu(access_token, chat_id):
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_delivery_menu(access_token, only_pick_up=False):
-    keyboard = [[InlineKeyboardButton('Самовывоз', callback_data='HANDLE_WAITING')]]
+def get_delivery_menu(access_token, chat_id, only_pick_up=False):
+    keyboard = [[InlineKeyboardButton('Самовывоз', callback_data=chat_id)]]
     if not only_pick_up:
-        keyboard.append([InlineKeyboardButton('Доставка', callback_data='HANDLE_WAITING')])
+        keyboard.append([InlineKeyboardButton('Доставка', callback_data='HANDLE_DELIVERY')])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -126,23 +126,26 @@ def confirm_email(bot, chat_id, motlin_token, customer_email):
         reply_markup=reply_markup)
 
 
-def confirm_deliviry(bot, chat_id, motlin_token, longitude, latitude, delete_message_id=0):
+def find_nearest_address(motlin_token, longitude, latitude):
     addresses = motlin_lib.get_entries(motlin_token, 'pizzeria')
     geo_lib.calculate_distance(addresses, longitude, latitude)
-    min_distance = min(addresses, key=lambda address: address['distance'])
-    if min_distance['distance'] <= 0.5:
-        reply_markup = get_delivery_menu(motlin_token)
+    return min(addresses, key=lambda address: address['distance'])
+
+
+def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_id=0):
+    if nearest_address['distance'] <= 0.5:
+        reply_markup = get_delivery_menu(motlin_token, chat_id)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent(f'''
                 Может заберете заказ из нашей пицерии неподалеку?
-                Она всего в {int(min_distance['distance']*1000)} метрах от Вас.
-                Вот ее адрес: {min_distance['address']}.
+                Она всего в {int(nearest_address['distance']*1000)} метрах от Вас.
+                Вот ее адрес: {nearest_address['address']}.
                 А можем и бесплатно доставить, нам не сложно.'''),
             reply_markup=reply_markup
         )
-    elif min_distance['distance'] > 0.5 and min_distance['distance'] <= 5:
-        reply_markup = get_delivery_menu(motlin_token)
+    elif nearest_address['distance'] > 0.5 and nearest_address['distance'] <= 5:
+        reply_markup = get_delivery_menu(motlin_token, chat_id)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent('''
@@ -151,8 +154,8 @@ def confirm_deliviry(bot, chat_id, motlin_token, longitude, latitude, delete_mes
                 Доставляем или самовывоз?'''),
             reply_markup=reply_markup
         )
-    elif min_distance['distance'] > 5 and min_distance['distance'] <= 20:
-        reply_markup = get_delivery_menu(motlin_token)
+    elif nearest_address['distance'] > 5 and nearest_address['distance'] <= 20:
+        reply_markup = get_delivery_menu(motlin_token, chat_id)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent('''
@@ -161,17 +164,29 @@ def confirm_deliviry(bot, chat_id, motlin_token, longitude, latitude, delete_mes
             reply_markup=reply_markup
         )
     else:
-        reply_markup = get_delivery_menu(motlin_token, True)
+        reply_markup = get_delivery_menu(motlin_token, chat_id, True)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent(f'''
                 Простите, но так далеко мы пиццу не доставим.
-                Ближайщая пицерия аж в {int(min_distance['distance'])} км. от вас.'''),
+                Ближайщая пицерия аж в {int(nearest_address['distance'])} км. от вас.'''),
             reply_markup=reply_markup
         )
-    # bot.send_location(chat_id=update.message.chat_id, latitude=latitude, longitude=longitude)
     if delete_message_id:
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
+
+
+def show_delivery_messages(bot, chat_id, delivery_chat_id, motlin_token, latitude, longitude, delete_message_id=0):
+    cart_info = motlin_lib.get_cart_info(motlin_token, str(chat_id))
+    bot.send_message(
+        chat_id=delivery_chat_id,
+        text=cart_info,
+        parse_mode='html'
+    )
+    bot.send_location(chat_id=delivery_chat_id, latitude=latitude, longitude=longitude)
+    if delete_message_id:
+        bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
+
 
 def finish_order(bot, chat_id, delete_message_id=0):
     bot.send_message(chat_id=chat_id, text='Благодарим за заказ. Менеждер свяжется с Вами в бижайшее время.')

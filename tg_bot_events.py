@@ -188,6 +188,11 @@ def show_delivery_messages(bot, chat_id, delivery_chat_id, motlin_token, latitud
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 
 
+def show_reminder(bot, job):
+    message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее, и это будет для Вас бесплатно!'
+    bot.send_message(chat_id=job.context, text=message)
+
+
 def finish_order(bot, chat_id, delete_message_id=0):
     bot.send_message(chat_id=chat_id, text='Благодарим за заказ. Менеждер свяжется с Вами в бижайшее время.')
     bot.delete_message(chat_id=chat_id, message_id=delete_message_id)

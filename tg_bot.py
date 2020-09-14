@@ -16,7 +16,7 @@ from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
 from tg_bot_events import add_product_to_cart
 from tg_bot_events import find_nearest_address, confirm_email, confirm_deliviry
 from tg_bot_events import show_store_menu, show_product_card, show_delivery_messages
-from tg_bot_events import show_products_in_cart, finish_order
+from tg_bot_events import show_products_in_cart, show_reminder, finish_order
 
 from validate_email import validate_email
 
@@ -28,6 +28,7 @@ class TgDialogBot(object):
 
     def __init__(self, tg_token, states_functions, redis_conn, motlin_params, yandex_api_key):
         self.updater = Updater(token=tg_token)
+        self.job = self.updater.job_queue
         self.updater.dispatcher.add_handler(CallbackQueryHandler(self.handle_users_reply))
         self.updater.dispatcher.add_handler(MessageHandler(Filters.text, self.handle_users_reply))
         self.updater.dispatcher.add_handler(MessageHandler(Filters.location, self.handle_geodata))
@@ -80,7 +81,8 @@ class TgDialogBot(object):
             update,
             self.motlin_token,
             self.redis_conn,
-            self.ya_api_key
+            self.ya_api_key,
+            self.job
         )
         self.redis_conn.add_value(chat_id, 'state', next_state)
 
@@ -170,7 +172,7 @@ def waiting_email(bot, update, *args):
 
 
 def handle_waiting(bot, update, *args):
-    motlin_token, redis_conn, ya_api_key = args
+    motlin_token, redis_conn, ya_api_key = args[:3]
     query = update.callback_query
     if query and query.data == 'HANDLE_MENU':
         finish_order(bot, query.message.chat_id, query.message.message_id)
@@ -208,7 +210,7 @@ def handle_waiting(bot, update, *args):
 
 
 def handle_delivery(bot, update, *args):
-    motlin_token, redis_conn, ya_api_key = args
+    motlin_token, redis_conn, ya_api_key, job_queue = args
     query = update.callback_query
     chat_id = query.message.chat_id
     pizzeria_address = motlin_lib.get_address(
@@ -228,7 +230,8 @@ def handle_delivery(bot, update, *args):
                 customer_address['latitude'],
                 customer_address['longitude']
             )
-        return query.data
+        job_queue.run_once(show_reminder, 60, context=chat_id)
+        return 'HANDLE_DELIVERY'
     else:
         if pizzeria_address:
             bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])

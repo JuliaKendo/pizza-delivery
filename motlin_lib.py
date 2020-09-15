@@ -178,6 +178,27 @@ def get_cart_amount(access_token, cart_id):
     return 'Всего к оплате: %s' % cart_price['meta']['display_price']['with_tax']['formatted']
 
 
+def get_payment_info(access_token, cart_id):
+    cart_info = []
+    for cart_item in get_cart_items(access_token, cart_id):
+        name, quantity, amount = (
+            cart_item['name'],
+            cart_item['quantity'],
+            cart_item['meta']['display_price']['with_tax']['value']['formatted']
+        )
+        cart_info.append(f'{name} - {quantity} шт. на сумму: {amount}')
+    cart_description = '\n'.join(cart_info)
+    cart_price = execute_get_request(
+        f'https://api.moltin.com/v2/carts/{cart_id}',
+        headers={'Authorization': access_token}
+    )
+    return (
+        cart_description,
+        cart_price['meta']['display_price']['with_tax']['currency'],
+        cart_price['meta']['display_price']['with_tax']['amount']
+    )
+
+
 def add_new_customer(access_token, email):
     headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
     data = {'data': {'type': 'customer', 'name': email.split('@')[0], 'email': email}}

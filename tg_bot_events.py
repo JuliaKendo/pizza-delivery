@@ -58,7 +58,7 @@ def get_cart_menu(access_token, chat_id):
         ] for cart_item in cart_items
     ]
     keyboard.append([InlineKeyboardButton('В меню', callback_data='HANDLE_MENU')])
-    keyboard.append([InlineKeyboardButton('Оплата', callback_data=chat_id)])
+    keyboard.append([InlineKeyboardButton('Оформить заказ', callback_data=chat_id)])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -73,6 +73,14 @@ def get_confirm_menu(access_token):
     keyboard = [
         [InlineKeyboardButton('Верно', callback_data='HANDLE_MENU')],
         [InlineKeyboardButton('Не верно', callback_data='WAITING_EMAIL')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_payment_menu():
+    keyboard = [
+        [InlineKeyboardButton('Наличные', callback_data='FINISH_ORDER')],
+        [InlineKeyboardButton('По крате', callback_data='HANDLE_PAYMENT')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -188,11 +196,23 @@ def show_delivery_messages(bot, chat_id, delivery_chat_id, motlin_token, latitud
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 
 
+def choose_payment_type(bot, chat_id, delete_message_id=0):
+    reply_markup = get_payment_menu()
+    message = 'Выберите вид оплаты:'
+    bot.send_message(chat_id=chat_id, text=message, reply_markup=reply_markup)
+    if delete_message_id:
+        bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
+
+
 def show_reminder(bot, job):
-    message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее, и это будет для Вас бесплатно!'
+    message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее, совершенно бусплатно для Вас!'
     bot.send_message(chat_id=job.context, text=message)
 
 
-def finish_order(bot, chat_id, delete_message_id=0):
-    bot.send_message(chat_id=chat_id, text='Благодарим за заказ. Менеждер свяжется с Вами в бижайшее время.')
-    bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
+def finish_order(bot, chat_id, cash_payment=False, delete_message_id=0):
+    if cash_payment:
+        bot.send_message(chat_id=chat_id, text='Благодарим за Ваш заказ!')
+    else:
+        bot.send_message(chat_id=chat_id, text='Спасибо за Вашу оплату!')
+    if delete_message_id:
+        bot.delete_message(chat_id=chat_id, message_id=delete_message_id)

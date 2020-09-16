@@ -13,8 +13,8 @@ Python3 должен быть уже установлен. Затем испол
 pip install -r requirements.txt
 ```
 
-Создайте базу данных на [Redislabs](https://redislabs.com)
-Создайте новый магазин в [Moltin](https://dashboard.elasticpath.com/stores)
+Создайте базу данных на [Redislabs](https://redislabs.com).
+Создайте новый магазин в [Moltin](https://dashboard.elasticpath.com/stores).
 
 Для установки создайте файл .env, в котором заполните следующие переменные окружения:
 - `TG_ACCESS_TOKEN` - Секретный ключ бота telegram для магазина.
@@ -32,6 +32,7 @@ pip install -r requirements.txt
 Для загрузки необходимы json файлы следующих форматов:
 ![Продукты](menu-demo.png)|![Адреса](addresses-demo.png)
 --------------------------|-----------------------------
+
 Запускают скрипт со следующими параметрами:
 1. `-m, --models`      Путь к *.json файлу с описанием моделей.
 2. `-p, --products`    Путь к *.json файлу с продуктами.

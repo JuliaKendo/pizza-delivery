@@ -2,9 +2,8 @@ import geo_lib
 
 import logging
 import logger_tools
-
+import phonenumbers
 import motlin_lib
-import motlin_load
 import os
 import redis_lib
 
@@ -15,12 +14,11 @@ from telegram import LabeledPrice
 from telegram.ext import Filters, Updater
 from telegram.ext import PreCheckoutQueryHandler
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
-from tg_bot_events import add_product_to_cart
-from tg_bot_events import find_nearest_address, confirm_email, confirm_deliviry
-from tg_bot_events import show_store_menu, show_product_card, show_delivery_messages
-from tg_bot_events import show_products_in_cart, show_reminder, choose_payment_type, finish_order
-
-from validate_email import validate_email
+from tg_bot_events import add_product_to_cart, choose_payment_type
+from tg_bot_events import confirm_deliviry, find_nearest_address, finish_order
+from tg_bot_events import save_customer_phone, save_customer_address
+from tg_bot_events import show_store_menu, show_product_card, show_products_in_cart
+from tg_bot_events import show_delivery_messages, show_reminder
 
 
 logger = logging.getLogger('pizza_delivery_bot')
@@ -43,7 +41,6 @@ class TgDialogBot(object):
         self.params['job'] = self.updater.job_queue
 
     def start(self):
-        self.params['redis_conn'].clear_db()
         self.updater.start_polling()
 
     def handle_geodata(self, bot, update):
@@ -134,30 +131,25 @@ def handle_cart(bot, update, motlin_token, params):
         show_store_menu(bot, chat_id, motlin_token, query.message.message_id, current_page)
         return query.data
     elif query.data == str(chat_id):
-        bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
-        return 'HANDLE_WAITING'
+        bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш номер телефона')
+        if query.message.message_id:
+            bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
+        return 'WAITING_PHONE'
     else:
         motlin_lib.delete_from_cart(motlin_token, chat_id, query.data)
         show_products_in_cart(bot, chat_id, motlin_token, query.message.message_id)
         return 'HANDLE_CART'
 
 
-def waiting_email(bot, update, motlin_token, params):
-    query = update.callback_query
-    if query and query.data == 'HANDLE_MENU':
-        finish_order(bot, query.message.chat_id, query.message.message_id)
-        return query.data
-    elif query and query.data == 'WAITING_EMAIL':
-        bot.send_message(chat_id=query.message.chat_id, text='Пришлите, пожалуйста, Ваш email')
-        return query.data
-    elif update.message.text and validate_email(update.message.text):
-        if not motlin_lib.get_customer_id(motlin_token, update.message.text):
-            motlin_lib.add_new_customer(motlin_token, update.message.text)
-        confirm_email(bot, update.message.chat_id, motlin_token, update.message.text)
-        return 'WAITING_EMAIL'
+def waiting_phone(bot, update, motlin_token, params):
+    if update.message.text and phonenumbers.is_valid_number(phonenumbers.parse(update.message.text, 'RU')):
+        save_customer_phone(bot, str(update.message.chat_id), motlin_token, update.message.text, update.message.message_id)
+        return 'HANDLE_WAITING'
     else:
-        bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный email. Поробуйте еще раз:')
-        return 'WAITING_EMAIL'
+        bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный номер телефона. Поробуйте еще раз:')
+        if update.message.message_id:
+            bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
+        return 'WAITING_PHONE'
 
 
 def handle_waiting(bot, update, motlin_token, params):
@@ -177,21 +169,11 @@ def handle_waiting(bot, update, motlin_token, params):
             longitude, latitude = update.message.location.longitude, update.message.location.latitude
             customer_address = geo_lib.fetch_address(params['ya_api_key'], longitude, latitude)
         if not longitude == latitude is None:
+            chat_id = update.message.chat_id
             nearest_address = find_nearest_address(motlin_token, longitude, latitude)
-            confirm_deliviry(bot, update.message.chat_id, motlin_token, nearest_address)
-            params['redis_conn'].add_value(update.message.chat_id, 'nearest_pizzeria', nearest_address['address'])
-            motlin_load.save_address(
-                motlin_token,
-                'customeraddress',
-                'customerid',
-                str(update.message.chat_id),
-                address={
-                    'address': customer_address,
-                    'longitude': longitude,
-                    'latitude': latitude,
-                    'customerid': str(update.message.chat_id)
-                }
-            )
+            params['redis_conn'].add_value(chat_id, 'nearest_pizzeria', nearest_address['address'])
+            confirm_deliviry(bot, chat_id, motlin_token, nearest_address)
+            save_customer_address(bot, str(chat_id), motlin_token, customer_address, longitude, latitude)
         else:
             bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректную геопозицию. Поробуйте еще раз:')
         return 'HANDLE_DELIVERY'
@@ -217,7 +199,7 @@ def handle_delivery(bot, update, motlin_token, params):
                 customer_address['latitude'],
                 customer_address['longitude']
             )
-        params['job'].run_once(show_reminder, 60, context=chat_id)
+        params['job'].run_once(show_reminder, 3600, context=chat_id)
     else:
         if pizzeria_address:
             bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
@@ -302,7 +284,7 @@ def main():
         'HANDLE_MENU': handle_menu,
         'HANDLE_DESCRIPTION': handle_description,
         'HANDLE_CART': handle_cart,
-        'WAITING_EMAIL': waiting_email,
+        'WAITING_PHONE': waiting_phone,
         'HANDLE_WAITING': handle_waiting,
         'HANDLE_DELIVERY': handle_delivery,
         'HANDLE_PAYMENT': handle_payment,

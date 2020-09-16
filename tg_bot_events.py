@@ -1,5 +1,6 @@
 import geo_lib
 import motlin_lib
+import motlin_load
 import textwrap
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -25,16 +26,16 @@ def get_store_menu(access_token, chat_id, page=None):
         return InlineKeyboardMarkup(keyboard)
     if page > 1 and page < max_pages:
         keyboard.append([
-            InlineKeyboardButton('<', callback_data='%d' % (page - 1)),
-            InlineKeyboardButton('>', callback_data='%d' % (page + 1))
+            InlineKeyboardButton('Пред.', callback_data='%d' % (page - 1)),
+            InlineKeyboardButton('След.', callback_data='%d' % (page + 1))
         ])
     elif page == 1:
         keyboard.append([
-            InlineKeyboardButton('>', callback_data='%d' % (page + 1))
+            InlineKeyboardButton('След.', callback_data='%d' % (page + 1))
         ])
     elif page >= max_pages:
         keyboard.append([
-            InlineKeyboardButton('<', callback_data='%d' % (page - 1))
+            InlineKeyboardButton('Пред.', callback_data='%d' % (page - 1))
         ])
     return InlineKeyboardMarkup(keyboard)
 
@@ -66,14 +67,6 @@ def get_delivery_menu(access_token, chat_id, only_pick_up=False):
     keyboard = [[InlineKeyboardButton('Самовывоз', callback_data=chat_id)]]
     if not only_pick_up:
         keyboard.append([InlineKeyboardButton('Доставка', callback_data='HANDLE_DELIVERY')])
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_confirm_menu(access_token):
-    keyboard = [
-        [InlineKeyboardButton('Верно', callback_data='HANDLE_MENU')],
-        [InlineKeyboardButton('Не верно', callback_data='WAITING_EMAIL')]
-    ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -126,18 +119,41 @@ def show_products_in_cart(bot, chat_id, motlin_token, delete_message_id=0):
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 
 
-def confirm_email(bot, chat_id, motlin_token, customer_email):
-    reply_markup = get_confirm_menu(motlin_token)
-    bot.send_message(
-        chat_id=chat_id,
-        text='Ваш еmail: %s' % customer_email,
-        reply_markup=reply_markup)
-
-
 def find_nearest_address(motlin_token, longitude, latitude):
     addresses = motlin_lib.get_entries(motlin_token, 'pizzeria')
     geo_lib.calculate_distance(addresses, longitude, latitude)
     return min(addresses, key=lambda address: address['distance'])
+
+
+def save_customer_phone(bot, chat_id, motlin_token, customer_phone, delete_message_id=0):
+    motlin_load.save_address(
+        motlin_token,
+        'customeraddress',
+        'customerid',
+        chat_id,
+        address={
+            'telephone': customer_phone,
+            'customerid': chat_id
+        }
+    )
+    bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
+    if delete_message_id:
+        bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
+
+
+def save_customer_address(bot, chat_id, motlin_token, customer_address, longitude, latitude):
+    motlin_load.save_address(
+        motlin_token,
+        'customeraddress',
+        'customerid',
+        chat_id,
+        address={
+            'address': customer_address,
+            'longitude': longitude,
+            'latitude': latitude,
+            'customerid': chat_id
+        }
+    )
 
 
 def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_id=0):
@@ -205,7 +221,7 @@ def choose_payment_type(bot, chat_id, delete_message_id=0):
 
 
 def show_reminder(bot, job):
-    message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее, совершенно бусплатно для Вас!'
+    message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее!'
     bot.send_message(chat_id=job.context, text=message)
 
 

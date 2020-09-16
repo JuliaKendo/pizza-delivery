@@ -101,7 +101,7 @@ def create_parser():
     parser = argparse.ArgumentParser(description='Параметры запуска скрипта')
     parser.add_argument('-m', '--models', default='models.json', help='Путь к *.json файлу с описанием моделей')
     parser.add_argument('-p', '--products', default='', help='Путь к *.json файлу с продуктами который необходимо загрузить')
-    parser.add_argument('-a', '--address', default='addresses.json', help='Путь к *.json файлу с адресами который необходимо загрузить')
+    parser.add_argument('-a', '--address', default='', help='Путь к *.json файлу с адресами который необходимо загрузить')
     return parser
 
 

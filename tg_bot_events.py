@@ -73,7 +73,7 @@ def get_delivery_menu(access_token, chat_id, only_pick_up=False):
 def get_payment_menu():
     keyboard = [
         [InlineKeyboardButton('Наличные', callback_data='FINISH_ORDER')],
-        [InlineKeyboardButton('По крате', callback_data='HANDLE_PAYMENT')]
+        [InlineKeyboardButton('Банковская карта', callback_data='HANDLE_PAYMENT')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -193,7 +193,7 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
             chat_id=chat_id,
             text=textwrap.dedent(f'''
                 Простите, но так далеко мы пиццу не доставим.
-                Ближайщая пицерия аж в {int(nearest_address['distance'])} км. от вас.'''),
+                Ближайшая пиццерия находится в {int(nearest_address['distance'])} км. от вас.'''),
             reply_markup=reply_markup
         )
     if delete_message_id:

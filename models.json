@@ -1,0 +1,80 @@
+[
+    {
+      "flow": {
+        "name": "Pizzeria",
+        "slug": "pizzeria",
+        "description": "Store addresses"
+      },
+      "fields": [
+        {
+          "name": "Address",
+          "slug": "address",
+          "description": "Address",
+          "type": "string"
+        },
+        {
+          "name": "Alias",
+          "slug": "alias",
+          "description": "Alias",
+          "type": "string"
+        },
+        {
+          "name": "Longitude",
+          "slug": "longitude",
+          "description": "Longitude",
+          "type": "float"
+        },
+        {
+          "name": "Latitude",
+          "slug": "latitude",
+          "description": "Latitude",
+          "type": "float"
+        },
+        {
+          "name": "Telegram id",
+          "slug": "telegramid",
+          "description": "Telegram id",
+          "type": "integer"
+        }
+      ]
+    },
+    {
+      "flow": {
+        "name": "Customer Address",
+        "slug": "customeraddress",
+        "description": "Customer Address"
+      },
+      "fields": [
+        {
+          "name": "Address",
+          "slug": "address",
+          "description": "Address",
+          "type": "string"
+        },
+        {
+          "name": "Customer id",
+          "slug": "customerid",
+          "description": "Customer id",
+          "type": "string"
+        },
+        {
+          "name": "Longitude",
+          "slug": "longitude",
+          "description": "Longitude",
+          "type": "float"
+        },
+        {
+          "name": "Latitude",
+          "slug": "latitude",
+          "description": "Latitude",
+          "type": "float"
+        },
+        {
+          "name": "Telephone",
+          "slug": "telephone",
+          "description": "Telephone",
+          "type": "string"
+        }
+      ]
+    }
+  ]

@@ -262,7 +262,7 @@ def launch_store_bot(states_functions):
             motlin_client_id=os.getenv('MOLTIN_CLIENT_ID'),
             motlin_client_secret=os.getenv('MOLTIN_CLIENT_SECRET'),
             ya_api_key=os.getenv('YANDEX_API_KEY'),
-            payment_token=os.getenv('TRANZZO_PAY_TOKEN')
+            payment_token=os.getenv('PAYMENT_TOKEN')
         )
         bot.start()
     except Exception as error:

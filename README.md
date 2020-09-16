@@ -14,6 +14,7 @@ pip install -r requirements.txt
 ```
 
 Создайте базу данных на [Redislabs](https://redislabs.com).
+
 Создайте новый магазин в [Moltin](https://dashboard.elasticpath.com/stores).
 
 Для установки создайте файл .env, в котором заполните следующие переменные окружения:

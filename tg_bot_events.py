@@ -64,16 +64,16 @@ def get_cart_menu(access_token, chat_id):
 
 
 def get_delivery_menu(access_token, chat_id, only_pick_up=False):
-    keyboard = [[InlineKeyboardButton('Самовывоз', callback_data=chat_id)]]
+    keyboard = [[InlineKeyboardButton('Самовывоз', callback_data='PICKUP_DELIVERY')]]
     if not only_pick_up:
-        keyboard.append([InlineKeyboardButton('Доставка', callback_data='HANDLE_DELIVERY')])
+        keyboard.append([InlineKeyboardButton('Доставка', callback_data='COURIER_DELIVERY')])
     return InlineKeyboardMarkup(keyboard)
 
 
 def get_payment_menu():
     keyboard = [
-        [InlineKeyboardButton('Наличные', callback_data='FINISH_ORDER')],
-        [InlineKeyboardButton('Банковская карта', callback_data='HANDLE_PAYMENT')]
+        [InlineKeyboardButton('Наличные', callback_data='CASH_PAYMENT')],
+        [InlineKeyboardButton('Банковская карта', callback_data='CARD_PAYMENT')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -200,14 +200,14 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 
 
-def show_delivery_messages(bot, chat_id, delivery_chat_id, motlin_token, latitude, longitude, delete_message_id=0):
-    cart_info = motlin_lib.get_cart_info(motlin_token, str(chat_id))
+def show_courier_messages(bot, chat_id, delivery_chat_id, motlin_token, latitude, longitude, cash=False, delete_message_id=0):
+    bot.send_location(chat_id=delivery_chat_id, latitude=latitude, longitude=longitude)
+    cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
     bot.send_message(
         chat_id=delivery_chat_id,
-        text=cart_info,
+        text='\n'.join([cart_info, f'к оплате: {amount}{currency}', 'наличными при получении' if cash else '']),
         parse_mode='html'
     )
-    bot.send_location(chat_id=delivery_chat_id, latitude=latitude, longitude=longitude)
     if delete_message_id:
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 

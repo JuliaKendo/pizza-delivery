@@ -18,7 +18,7 @@ from tg_bot_events import add_product_to_cart, choose_payment_type
 from tg_bot_events import confirm_deliviry, find_nearest_address, finish_order
 from tg_bot_events import save_customer_phone, save_customer_address
 from tg_bot_events import show_store_menu, show_product_card, show_products_in_cart
-from tg_bot_events import show_delivery_messages, show_reminder
+from tg_bot_events import show_courier_messages, show_reminder
 
 
 logger = logging.getLogger('pizza_delivery_bot')
@@ -180,46 +180,53 @@ def handle_waiting(bot, update, motlin_token, params):
 
 
 def handle_delivery(bot, update, motlin_token, params):
-    query = update.callback_query
-    chat_id = query.message.chat_id
+    if update.callback_query:
+        query, chat_id = update.callback_query, update.callback_query.message.chat_id
+    elif update.message:
+        query, chat_id = None, update.message.chat_id
     pizzeria_address = motlin_lib.get_address(
         motlin_token,
         'pizzeria',
         'address',
         params['redis_conn'].get_value(chat_id, 'nearest_pizzeria')
     )
-    if query.data == 'HANDLE_DELIVERY':
-        customer_address = motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', str(chat_id))
-        if pizzeria_address and customer_address:
-            show_delivery_messages(
-                bot,
-                chat_id,
-                pizzeria_address['telegramid'],
-                motlin_token,
-                customer_address['latitude'],
-                customer_address['longitude']
-            )
+    if query and query.data == 'COURIER_DELIVERY':
         params['job'].run_once(show_reminder, 3600, context=chat_id)
-    else:
+    elif query and query.data == 'PICKUP_DELIVERY':
         if pizzeria_address:
             bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
         message = f'Вы сможете забрать пиццу по адресу: {pizzeria_address["address"]}'
         bot.send_message(chat_id=chat_id, text=message)
+    else:
+        customer_address = motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', str(chat_id))
+        show_courier_messages(
+            bot,
+            chat_id,
+            pizzeria_address['telegramid'],
+            motlin_token,
+            customer_address['latitude'],
+            customer_address['longitude'],
+            cash=params['cash'] if params.get('cash') else False
+        )
+        return 'HANDLE_DELIVERY'
     choose_payment_type(bot, chat_id)
     return 'HANDLE_PAYMENT'
 
 
 def handle_payment(bot, update, motlin_token, params):
     if update.message and update.message.successful_payment:
+        handle_delivery(bot, update, motlin_token, params)
         finish_order(bot, update.message.chat_id)
         return 'HANDLE_MENU'
     else:
         query = update.callback_query
         chat_id = query.message.chat_id
-        if query.data == 'FINISH_ORDER':
+        if query.data == 'CASH_PAYMENT':
+            params['cash'] = True
+            handle_delivery(bot, update, motlin_token, params)
             finish_order(bot, chat_id, True, query.message.message_id)
             return 'HANDLE_MENU'
-        else:
+        elif query.data == 'CARD_PAYMENT':
             description, currency, price = motlin_lib.get_payment_info(motlin_token, chat_id)
             bot.send_invoice(
                 chat_id,
@@ -233,6 +240,8 @@ def handle_payment(bot, update, motlin_token, params):
             )
             bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
             return 'PAYMENT_WAITING'
+        else:
+            return 'HANDLE_PAYMENT'
 
 
 def payment_waiting(bot, update, motlin_token, params):

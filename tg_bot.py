@@ -23,6 +23,8 @@ from tg_bot_events import show_courier_messages, show_reminder
 
 logger = logging.getLogger('pizza_delivery_bot')
 
+REMINDER_PERIOD = 3600
+
 
 class TgDialogBot(object):
 
@@ -182,16 +184,20 @@ def handle_waiting(bot, update, motlin_token, params):
 def handle_delivery(bot, update, motlin_token, params):
     if update.callback_query:
         query, chat_id = update.callback_query, update.callback_query.message.chat_id
+        message_id = query.message.message_id
     elif update.message:
-        query, chat_id = None, update.message.chat_id
+        query, chat_id, message_id = None, update.message.chat_id, 0
     pizzeria_address = motlin_lib.get_address(
         motlin_token,
         'pizzeria',
         'address',
         params['redis_conn'].get_value(chat_id, 'nearest_pizzeria')
     )
-    if query and query.data == 'COURIER_DELIVERY':
-        params['job'].run_once(show_reminder, 3600, context=chat_id)
+    if query and 'COURIER_DELIVERY' in query.data:
+        delivery_price = query.data.replace('COURIER_DELIVERY', '')
+        if delivery_price:
+            params['redis_conn'].add_value(chat_id, 'delivery_price', int(delivery_price))
+        params['job'].run_once(show_reminder, REMINDER_PERIOD, context=chat_id)
     elif query and query.data == 'PICKUP_DELIVERY':
         if pizzeria_address:
             bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
@@ -204,12 +210,12 @@ def handle_delivery(bot, update, motlin_token, params):
             chat_id,
             pizzeria_address['telegramid'],
             motlin_token,
-            customer_address['latitude'],
-            customer_address['longitude'],
+            customer_address,
+            delivery_price=params['redis_conn'].get_value(chat_id, 'delivery_price'),
             cash=params['cash'] if params.get('cash') else False
         )
         return 'HANDLE_DELIVERY'
-    choose_payment_type(bot, chat_id)
+    choose_payment_type(bot, chat_id, message_id)
     return 'HANDLE_PAYMENT'
 
 

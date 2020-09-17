@@ -63,10 +63,11 @@ def get_cart_menu(access_token, chat_id):
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_delivery_menu(access_token, chat_id, only_pick_up=False):
+def get_delivery_menu(access_token, chat_id, delivery_price=0, only_pick_up=False):
     keyboard = [[InlineKeyboardButton('Самовывоз', callback_data='PICKUP_DELIVERY')]]
     if not only_pick_up:
-        keyboard.append([InlineKeyboardButton('Доставка', callback_data='COURIER_DELIVERY')])
+        callback_data = f'COURIER_DELIVERY{delivery_price if delivery_price else ""}'
+        keyboard.append([InlineKeyboardButton('Доставка', callback_data=callback_data)])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -169,7 +170,7 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
             reply_markup=reply_markup
         )
     elif nearest_address['distance'] > 0.5 and nearest_address['distance'] <= 5:
-        reply_markup = get_delivery_menu(motlin_token, chat_id)
+        reply_markup = get_delivery_menu(motlin_token, chat_id, 100)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent('''
@@ -179,7 +180,7 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
             reply_markup=reply_markup
         )
     elif nearest_address['distance'] > 5 and nearest_address['distance'] <= 20:
-        reply_markup = get_delivery_menu(motlin_token, chat_id)
+        reply_markup = get_delivery_menu(motlin_token, chat_id, 300)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent('''
@@ -188,7 +189,7 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
             reply_markup=reply_markup
         )
     else:
-        reply_markup = get_delivery_menu(motlin_token, chat_id, True)
+        reply_markup = get_delivery_menu(motlin_token, chat_id, 0, True)
         bot.send_message(
             chat_id=chat_id,
             text=textwrap.dedent(f'''
@@ -200,12 +201,20 @@ def confirm_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message
         bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
 
 
-def show_courier_messages(bot, chat_id, delivery_chat_id, motlin_token, latitude, longitude, cash=False, delete_message_id=0):
-    bot.send_location(chat_id=delivery_chat_id, latitude=latitude, longitude=longitude)
+def show_courier_messages(bot, chat_id, delivery_chat_id, motlin_token, customer_address, delivery_price=0, cash=False, delete_message_id=0):
+    bot.send_location(chat_id=delivery_chat_id, latitude=customer_address['latitude'], longitude=customer_address['longitude'])
     cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
+    message = '\n'.join(
+        [
+            cart_info,
+            f'Сумма заказа: {amount} {currency}',
+            f'Доставка {delivery_price} {currency}' if delivery_price else '',
+            'Наличными при получении' if cash else ''
+        ]
+    )
     bot.send_message(
         chat_id=delivery_chat_id,
-        text='\n'.join([cart_info, f'к оплате: {amount}{currency}', 'наличными при получении' if cash else '']),
+        text=message,
         parse_mode='html'
     )
     if delete_message_id:

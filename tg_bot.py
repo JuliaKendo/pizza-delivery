@@ -15,15 +15,17 @@ from telegram.ext import Filters, Updater
 from telegram.ext import PreCheckoutQueryHandler
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
 from tg_bot_events import add_product_to_cart, choose_payment_type
-from tg_bot_events import confirm_deliviry, find_nearest_address, finish_order
-from tg_bot_events import save_customer_phone, save_customer_address
+from tg_bot_events import clear_settings_and_task_queue, get_delivery_time
+from tg_bot_events import delete_messages, is_courier, choose_deliviry, confirm_deliviry
+from tg_bot_events import find_nearest_address, finish_order, save_customer_phone, save_customer_address
 from tg_bot_events import show_store_menu, show_product_card, show_products_in_cart
-from tg_bot_events import show_courier_messages, show_reminder
+from tg_bot_events import show_courier_messages, show_reminder, update_courier_messages
 
 
 logger = logging.getLogger('pizza_delivery_bot')
 
-REMINDER_PERIOD = 3600
+CLIENT_REMINDER_PERIOD = 3600
+COURIER_REMINDER_PERIOD = 60
 
 
 class TgDialogBot(object):
@@ -84,9 +86,14 @@ class TgDialogBot(object):
 
 
 def start(bot, update, motlin_token, params):
-    current_page = params['redis_conn'].get_value(update.message.chat_id, 'current_page')
-    show_store_menu(bot, update.message.chat_id, motlin_token, page=current_page)
-    return 'HANDLE_MENU'
+    if is_courier(motlin_token, update.message.chat_id):
+        clear_settings_and_task_queue(update.message.chat_id, params)
+        bot.send_message(chat_id=update.message.chat_id, text='Добро пожаловать! Ожидайте заказы на доставку!')
+        return 'HANDLE_DELIVERY'
+    else:
+        current_page = params['redis_conn'].get_value(update.message.chat_id, 'current_page')
+        show_store_menu(bot, update.message.chat_id, motlin_token, page=current_page)
+        return 'HANDLE_MENU'
 
 
 def handle_menu(bot, update, motlin_token, params):
@@ -101,11 +108,8 @@ def handle_menu(bot, update, motlin_token, params):
         return 'HANDLE_MENU'
     else:
         show_product_card(
-            bot,
-            chat_id,
-            motlin_token,
-            query.data,
-            query.message.message_id
+            bot, chat_id, motlin_token,
+            query.data, query.message.message_id
         )
         return 'HANDLE_DESCRIPTION'
 
@@ -134,8 +138,7 @@ def handle_cart(bot, update, motlin_token, params):
         return query.data
     elif query.data == str(chat_id):
         bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш номер телефона')
-        if query.message.message_id:
-            bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
+        delete_messages(bot, chat_id, query.message.message_id)
         return 'WAITING_PHONE'
     else:
         motlin_lib.delete_from_cart(motlin_token, chat_id, query.data)
@@ -149,105 +152,126 @@ def waiting_phone(bot, update, motlin_token, params):
         return 'HANDLE_WAITING'
     else:
         bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный номер телефона. Поробуйте еще раз:')
-        if update.message.message_id:
-            bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
+        delete_messages(bot, update.message.chat_id, update.message.message_id, message_numbers=2)
         return 'WAITING_PHONE'
 
 
 def handle_waiting(bot, update, motlin_token, params):
     query = update.callback_query
+    longitude, latitude = None, None
     if query and query.data == 'HANDLE_MENU':
         finish_order(bot, query.message.chat_id, query.message.message_id)
         return query.data
     elif query and query.data == 'HANDLE_WAITING':
         bot.send_message(chat_id=query.message.chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
         return query.data
-    else:
-        longitude, latitude = None, None
-        if update.message.text:
-            longitude, latitude = geo_lib.fetch_coordinates(params['ya_api_key'], update.message.text)
-            customer_address = update.message.text
-        elif update.message.location:
-            longitude, latitude = update.message.location.longitude, update.message.location.latitude
-            customer_address = geo_lib.fetch_address(params['ya_api_key'], longitude, latitude)
-        if not longitude == latitude is None:
-            chat_id = update.message.chat_id
-            nearest_address = find_nearest_address(motlin_token, longitude, latitude)
-            params['redis_conn'].add_value(chat_id, 'nearest_pizzeria', nearest_address['address'])
-            confirm_deliviry(bot, chat_id, motlin_token, nearest_address)
-            save_customer_address(bot, str(chat_id), motlin_token, customer_address, longitude, latitude)
-        else:
-            bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректную геопозицию. Поробуйте еще раз:')
+    elif update.message.text:
+        longitude, latitude = geo_lib.fetch_coordinates(params['ya_api_key'], update.message.text)
+        customer_address = update.message.text
+        delete_messages(bot, update.message.chat_id, update.message.message_id - 1)
+    elif update.message.location:
+        longitude, latitude = update.message.location.longitude, update.message.location.latitude
+        customer_address = geo_lib.fetch_address(params['ya_api_key'], longitude, latitude)
+        delete_messages(bot, update.message.chat_id, update.message.message_id - 1)
+
+    if not longitude == latitude is None:
+        chat_id = update.message.chat_id
+        nearest_address = find_nearest_address(motlin_token, longitude, latitude)
+        params['redis_conn'].add_value(chat_id, 'nearest_pizzeria', nearest_address['address'])
+        choose_deliviry(bot, chat_id, motlin_token, nearest_address)
+        save_customer_address(bot, str(chat_id), motlin_token, customer_address, longitude, latitude)
         return 'HANDLE_DELIVERY'
+    else:
+        bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный адрес или геопозицию. Поробуйте еще раз:')
+        return 'HANDLE_WAITING'
 
 
-def handle_delivery(bot, update, motlin_token, params):
-    if update.callback_query:
+def handle_delivery(bot, update, motlin_token, params, customer_chat_id=''):
+    if customer_chat_id:
+        query, chat_id, message_id = None, int(customer_chat_id), None
+    elif update.callback_query:
         query, chat_id = update.callback_query, update.callback_query.message.chat_id
         message_id = query.message.message_id
     elif update.message:
         query, chat_id, message_id = None, update.message.chat_id, 0
+
     pizzeria_address = motlin_lib.get_address(
-        motlin_token,
-        'pizzeria',
-        'address',
+        motlin_token, 'pizzeria', 'address',
         params['redis_conn'].get_value(chat_id, 'nearest_pizzeria')
     )
+    delivery_type = params['redis_conn'].get_value(chat_id, 'delivery_type')
+    delivery_price = params['redis_conn'].get_value(chat_id, 'delivery_price')
+    pay_by_cash = bool(params['redis_conn'].get_value(chat_id, 'cash_payment'))
+
     if query and 'COURIER_DELIVERY' in query.data:
         delivery_price = query.data.replace('COURIER_DELIVERY', '')
-        if delivery_price:
-            params['redis_conn'].add_value(chat_id, 'delivery_price', int(delivery_price))
-        params['job'].run_once(show_reminder, REMINDER_PERIOD, context=chat_id)
-    elif query and query.data == 'PICKUP_DELIVERY':
-        if pizzeria_address:
-            bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
-        message = f'Вы сможете забрать пиццу по адресу: {pizzeria_address["address"]}'
-        bot.send_message(chat_id=chat_id, text=message)
-    else:
-        customer_address = motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', str(chat_id))
-        show_courier_messages(
-            bot,
-            chat_id,
-            pizzeria_address['telegramid'],
-            motlin_token,
-            customer_address,
-            delivery_price=params['redis_conn'].get_value(chat_id, 'delivery_price'),
-            cash=params['cash'] if params.get('cash') else False
+        params['redis_conn'].add_value(chat_id, 'delivery_type', 'COURIER_DELIVERY')
+        params['redis_conn'].add_value(chat_id, 'delivery_price', int(delivery_price if delivery_price else 0))
+        params['job'].run_once(show_reminder, CLIENT_REMINDER_PERIOD, context=chat_id)
+        delete_messages(bot, chat_id, message_id, message_numbers=2)
+    elif query and pizzeria_address and query.data == 'PICKUP_DELIVERY':
+        params['redis_conn'].add_value(chat_id, 'delivery_type', 'PICKUP_DELIVERY')
+        bot.send_location(chat_id=chat_id, latitude=pizzeria_address['latitude'], longitude=pizzeria_address['longitude'])
+        bot.send_message(
+            chat_id=chat_id,
+            text=f'Вы сможете забрать пиццу по адресу: {pizzeria_address["address"]}')
+        delete_messages(bot, chat_id, message_id, message_numbers=2)
+    elif pizzeria_address and delivery_type == 'COURIER_DELIVERY':
+        courier_id = pizzeria_address['telegramid']
+        params['job'].run_repeating(
+            update_courier_messages,
+            COURIER_REMINDER_PERIOD,
+            first=0,
+            context={
+                'chat_id': chat_id,
+                'courier_id': courier_id,
+                'motlin_token': motlin_token,
+                'customer_address': motlin_lib.get_address(
+                    motlin_token, 'customeraddress',
+                    'customerid', str(chat_id)
+                ),
+                'delivery_price': delivery_price,
+                'cash': pay_by_cash,
+                'redis_conn': params['redis_conn'],
+                'delivery_time': get_delivery_time(params['redis_conn'], chat_id, CLIENT_REMINDER_PERIOD)
+            }
         )
+        params['redis_conn'].add_value(courier_id, 'state', 'UPDATE_HANDLER')
+        return 'UPDATE_HANDLER'
+    else:
         return 'HANDLE_DELIVERY'
-    choose_payment_type(bot, chat_id, message_id)
+    choose_payment_type(bot, chat_id)
     return 'HANDLE_PAYMENT'
 
 
 def handle_payment(bot, update, motlin_token, params):
     if update.message and update.message.successful_payment:
-        handle_delivery(bot, update, motlin_token, params)
-        finish_order(bot, update.message.chat_id)
-        return 'HANDLE_MENU'
-    else:
-        query = update.callback_query
-        chat_id = query.message.chat_id
-        if query.data == 'CASH_PAYMENT':
-            params['cash'] = True
+        delivery_type = params['redis_conn'].get_value(update.message.chat_id, 'delivery_type')
+        if delivery_type == 'COURIER_DELIVERY':
             handle_delivery(bot, update, motlin_token, params)
-            finish_order(bot, chat_id, True, query.message.message_id)
-            return 'HANDLE_MENU'
-        elif query.data == 'CARD_PAYMENT':
-            description, currency, price = motlin_lib.get_payment_info(motlin_token, chat_id)
-            bot.send_invoice(
-                chat_id,
-                'Оплата заказа',
-                description,
-                'Tranzzo payment',
-                params['payment_token'],
-                'payment',
-                currency,
-                [LabeledPrice('Заказ', price * 100)]
-            )
-            bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
-            return 'PAYMENT_WAITING'
-        else:
-            return 'HANDLE_PAYMENT'
+        finish_order(bot, update.message.chat_id)
+        return 'UPDATE_HANDLER'
+    elif update.callback_query and update.callback_query.data == 'CASH_PAYMENT':
+        chat_id = update.callback_query.message.chat_id
+        params['redis_conn'].add_value(chat_id, 'cash_payment', 1)
+        handle_delivery(bot, update, motlin_token, params)
+        finish_order(bot, chat_id, True, update.callback_query.message.message_id)
+        return 'UPDATE_HANDLER'
+    elif update.callback_query and update.callback_query.data == 'CARD_PAYMENT':
+        chat_id = update.callback_query.message.chat_id
+        params['redis_conn'].add_value(chat_id, 'cash_payment', 0)
+        description, currency, price = motlin_lib.get_payment_info(motlin_token, chat_id)
+        bot.send_invoice(
+            chat_id, 'Оплата заказа',
+            description, 'Tranzzo payment',
+            params['payment_token'],
+            'payment', currency,
+            [LabeledPrice('Заказ', price * 100)]
+        )
+        delete_messages(bot, chat_id, update.callback_query.message.message_id)
+        return 'PAYMENT_WAITING'
+    else:
+        return 'HANDLE_PAYMENT'
 
 
 def payment_waiting(bot, update, motlin_token, params):
@@ -261,6 +285,34 @@ def payment_waiting(bot, update, motlin_token, params):
     else:
         bot.answer_pre_checkout_query(pre_checkout_query_id=query.id, ok=True)
     return 'HANDLE_PAYMENT'
+
+
+def update_handler(bot, update, motlin_token, params):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    if query.data == 'DELIVERED_YES':
+        delete_messages(bot, chat_id, query.message.message_id)
+        clear_settings_and_task_queue(chat_id, params)
+        return 'UPDATE_HANDLER'
+    elif 'DELIVEREDTO' in query.data:
+        confirm_deliviry(
+            bot, chat_id,
+            query.data.replace('DELIVEREDTO', ''),
+            query.message.message_id
+        )
+    else:
+        show_courier_messages(
+            bot, [
+                query.data, chat_id, motlin_token,
+                motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', query.data),
+                params['redis_conn'].get_value(query.data, 'delivery_price'),
+                bool(params['redis_conn'].get_value(query.data, 'cash_payment')),
+                params['redis_conn'],
+                get_delivery_time(params['redis_conn'], query.data, CLIENT_REMINDER_PERIOD)
+            ]
+        )
+        delete_messages(bot, chat_id, query.message.message_id)
+    return 'UPDATE_HANDLER'
 
 
 def launch_store_bot(states_functions):
@@ -303,7 +355,8 @@ def main():
         'HANDLE_WAITING': handle_waiting,
         'HANDLE_DELIVERY': handle_delivery,
         'HANDLE_PAYMENT': handle_payment,
-        'PAYMENT_WAITING': payment_waiting
+        'PAYMENT_WAITING': payment_waiting,
+        'UPDATE_HANDLER': update_handler
     }
 
     launch_store_bot(states_functions)

@@ -83,8 +83,7 @@ def load_addresses(motlin_token, filename, pizzeria_model):
                     'address': address['address']['full'],
                     'alias': address['alias'],
                     'longitude': address['coordinates']['lon'],
-                    'latitude': address['coordinates']['lat'],
-                    'telegramid': 741049472
+                    'latitude': address['coordinates']['lat']
                 }
             )
 

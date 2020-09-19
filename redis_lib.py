@@ -19,3 +19,6 @@ class RedisDb(object):
     def get_value(self, name, key):
         value = self.redis_conn.hmget(name, (key))[0]
         return value.decode("utf-8") if value else None
+
+    def del_value(self, name):
+        self.redis_conn.delete(name)

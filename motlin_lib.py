@@ -114,12 +114,11 @@ def get_product_info(access_token, product_id):
         headers={'Authorization': access_token}
     )
     product_image = get_product_image(access_token, product_data)
-    name, description, currency, amount, quantity = (
+    name, description, currency, amount = (
         product_data['name'],
         product_data['description'],
         product_data['price'][0]['currency'],
-        product_data['price'][0]['amount'],
-        get_quantity_product_in_stock(access_token, product_id)
+        product_data['price'][0]['amount']
     )
     return (
         f'<b>{name}</b>\n\nстоимость: {amount} {currency}\n\n<i>{description}</i>',

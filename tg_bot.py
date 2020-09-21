@@ -31,7 +31,8 @@ COURIER_REMINDER_PERIOD = 60
 class TgDialogBot(object):
 
     def __init__(self, tg_token, states_functions, **params):
-        self.tg_token, self.params = tg_token, params
+        self.tg_token = tg_token
+        self.params = params
         self.updater = Updater(token=tg_token)
         self.updater.dispatcher.add_handler(CallbackQueryHandler(self.handle_users_reply))
         self.updater.dispatcher.add_handler(MessageHandler(Filters.successful_payment, self.handle_users_reply))

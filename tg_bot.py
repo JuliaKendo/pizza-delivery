@@ -45,7 +45,9 @@ class TgDialogBot(object):
         self.params['job'] = self.updater.job_queue
 
     def start(self):
-        self.updater.start_polling()
+        self.updater.start_webhook(listen="0.0.0.0", port=int(self.params['port']), url_path=self.tg_token)
+        self.updater.bot.setWebhook(self.params['url'] + self.tg_token)
+        self.updater.idle()
 
     def handle_geodata(self, bot, update):
         next_state = self.states_functions['HANDLE_WAITING'](bot, update, self.motlin_token, self.params)
@@ -329,7 +331,9 @@ def launch_store_bot(states_functions):
             motlin_client_id=os.getenv('MOLTIN_CLIENT_ID'),
             motlin_client_secret=os.getenv('MOLTIN_CLIENT_SECRET'),
             ya_api_key=os.getenv('YANDEX_API_KEY'),
-            payment_token=os.getenv('PAYMENT_TOKEN')
+            payment_token=os.getenv('PAYMENT_TOKEN'),
+            url=os.getenv('HEROKU_URL'),
+            port=os.getenv('HEROKU_PORT')
         )
         bot.start()
     except Exception as error:

@@ -26,7 +26,6 @@ logger = logging.getLogger('pizza_delivery_bot')
 
 CLIENT_REMINDER_PERIOD = 3600
 COURIER_REMINDER_PERIOD = 60
-URL = os.getenv('URL')
 PORT = os.getenv('PORT')
 
 
@@ -49,7 +48,7 @@ class TgDialogBot(object):
 
     def start(self):
         self.updater.start_webhook(listen="0.0.0.0", port=int(PORT), url_path=self.tg_token)
-        self.updater.bot.setWebhook(URL + self.tg_token)
+        self.updater.bot.setWebhook(self.params['heroku_url'] + self.tg_token)
         self.updater.idle()
 
     def handle_geodata(self, bot, update):
@@ -334,7 +333,8 @@ def launch_store_bot(states_functions):
             motlin_client_id=os.getenv('MOLTIN_CLIENT_ID'),
             motlin_client_secret=os.getenv('MOLTIN_CLIENT_SECRET'),
             ya_api_key=os.getenv('YANDEX_API_KEY'),
-            payment_token=os.getenv('PAYMENT_TOKEN')
+            payment_token=os.getenv('PAYMENT_TOKEN'),
+            heroku_url=os.getenv('HEROKU_URL')
         )
         bot.start()
     except Exception as error:

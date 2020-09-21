@@ -29,6 +29,8 @@ pip install -r requirements.txt
 - `REDIS_PASSWORD` - Пароль для подключения к базе данных redis.
 - `YANDEX_API_KEY` - API ключ [yandex геокодер](https://developer.tech.yandex.ru/services/).
 - `PAYMENT_TOKEN` - Токен провайдера платежей.
+- `HEROKU_URL` - URL доступный после деплоя на сервер [HEROKU](https://heroku.com).
+- `PORT` - Порт веб сервера [HEROKU](https://heroku.com).
 
 В CMS Moltin должны быть созданы модели и поля, а также загружена информация о продуктах и адресах. Скрипт motlin_load.py делает это автоматически. 
 Для загрузки необходимы json файлы следующих форматов:

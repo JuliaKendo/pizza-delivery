@@ -1,4 +1,9 @@
+import os
+import json
 import requests
+from tqdm import tqdm
+from slugify import slugify
+from urllib.parse import urlparse
 
 
 def get_moltin_access_token(client_secret, client_id):
@@ -333,3 +338,119 @@ def get_address(motlin_token, slug, field, value):
     entry_id = get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
     if entry_id:
         return get_entry(motlin_token, slug, entry_id)
+
+
+def read_models_from_file(motlin_token, file_name):
+    models = []
+    with open(file_name, 'r') as file_handler:
+        models_catalog = json.load(file_handler)
+
+    for model in models_catalog:
+        model_ids = {'flow_id': '', 'flow_slug': '', 'fields': {}}
+        flow_id = get_item_id(
+            motlin_token, 'flows', field='name',
+            value=model['flow']['name']
+        )
+        if not flow_id:
+            flow_id = add_new_flow(
+                motlin_token,
+                model['flow']['name'],
+                model['flow']['slug'],
+                model['flow']['description']
+            )
+        if flow_id:
+            model_ids['flow_id'], model_ids['flow_slug'] = flow_id, model['flow']['slug']
+        else:
+            models.append(model_ids)
+            continue
+        for field in model['fields']:
+            field_id = get_item_id(
+                motlin_token,
+                'fields',
+                slug=model['flow']['slug'],
+                field='slug',
+                value=field['slug']
+            )
+            if field_id:
+                model_ids['fields'][field['name']] = field_id
+                continue
+            model_ids['fields'][field['name']] = add_new_field(motlin_token, flow_id, field)
+        models.append(model_ids)
+
+    return models
+
+
+def load_image(motlin_token, product_id, image_folder, image_url):
+    url_path = urlparse(image_url).path
+    image_file = url_path.split('/')[-1]
+
+    response = requests.get(image_url)
+    response.raise_for_status()
+
+    image_path = os.path.join(image_folder, image_file)
+    with open(image_path, 'wb') as file_handler:
+        file_handler.write(response.content)
+    load_file(motlin_token, product_id, image_path)
+
+
+def load_products_from_file(motlin_token, filename, image_folder):
+
+    with open(filename, 'r') as file_handler:
+        products = json.load(file_handler)
+
+    for product in tqdm(products, desc="Загружено", unit="наименований"):
+        product_characteristic = {
+            'type': 'product',
+            'name': product['name'],
+            'slug': slugify(product['name']),
+            'sku': str(product['id']),
+            'description': product['description'],
+            'manage_stock': False,
+            'price': [
+                {
+                    'amount': product['price'],
+                    'currency': 'RUB',
+                    'includes_tax': True
+                }
+            ],
+            'status': 'live',
+            'commodity_type': 'physical'
+        }
+        product_id = get_item_id(
+            motlin_token, 'products',
+            field='sku', value=str(product['id'])
+        )
+        if product_id:
+            update_product(motlin_token, product_id, product_characteristic)
+        else:
+            product_id = add_new_product(motlin_token, product_characteristic)
+        if product['product_image']['url']:
+            load_image(motlin_token, product_id, image_folder, product['product_image']['url'])
+
+
+def load_addresses_from_file(motlin_token, filename, pizzeria_model):
+
+    with open(filename, 'r') as file_handler:
+        addresses = json.load(file_handler)
+
+    for address in tqdm(addresses, desc="Загружено", unit="адресов"):
+        save_address(
+            motlin_token,
+            pizzeria_model['flow_slug'],
+            'address',
+            address['address']['full'],
+            address={
+                'address': address['address']['full'],
+                'alias': address['alias'],
+                'longitude': address['coordinates']['lon'],
+                'latitude': address['coordinates']['lat']
+            }
+        )
+
+
+def save_address(motlin_token, slug, field, value, address):
+    entry_id = get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
+    if entry_id:
+        update_entry(motlin_token, slug, entry_id, address)
+    else:
+        add_new_entry(motlin_token, slug, address)

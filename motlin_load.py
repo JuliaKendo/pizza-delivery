@@ -1,99 +1,10 @@
 import os
-import re
-import json
 import argparse
 import requests
-import motlin_lib
-import motlin_models
-from tqdm import tqdm
+from libs import motlin_lib
 from dotenv import load_dotenv
-from urllib.parse import urlparse
 
 TEMPORARY_IMAGE_FOLDER = 'images'
-
-
-def generate_slug(product_name):
-    symbols = (u"абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
-               u"abvgdeejzijklmnoprstufhzcss_y_euaABVGDEEJZIJKLMNOPRSTUFHZCSS_Y_EUA")
-
-    name = ''.join(re.findall('[a-z]+|[а-я]+|[0-9]+', product_name.lower()))
-    return name.translate({ord(a): ord(b) for a, b in zip(*symbols)})
-
-
-def load_image(motlin_token, product_id, url_image):
-    url_path = urlparse(url_image).path
-    image_file = url_path.split('/')[-1]
-
-    response = requests.get(url_image)
-    response.raise_for_status()
-
-    image_path = os.path.join(TEMPORARY_IMAGE_FOLDER, image_file)
-    with open(image_path, 'wb') as file_handler:
-        file_handler.write(response.content)
-    motlin_lib.load_file(motlin_token, product_id, image_path)
-
-
-def load_products(motlin_token, filename):
-
-    with open(filename, 'r') as file_handler:
-        products = json.load(file_handler)
-
-    for product in tqdm(products, desc="Загружено", unit="наименований"):
-        product_characteristic = {
-            'type': 'product',
-            'name': product['name'],
-            'slug': generate_slug(product['name']),
-            'sku': str(product['id']),
-            'description': product['description'],
-            'manage_stock': False,
-            'price': [
-                {
-                    'amount': product['price'],
-                    'currency': 'RUB',
-                    'includes_tax': True
-                }
-            ],
-            'status': 'live',
-            'commodity_type': 'physical'
-        }
-        product_id = motlin_lib.get_item_id(
-            motlin_token,
-            'products',
-            field='sku',
-            value=str(product['id'])
-        )
-        if product_id:
-            motlin_lib.update_product(motlin_token, product_id, product_characteristic)
-        else:
-            product_id = motlin_lib.add_new_product(motlin_token, product_characteristic)
-        if product['product_image']['url']:
-            load_image(motlin_token, product_id, product['product_image']['url'])
-
-
-def load_addresses(motlin_token, filename, pizzeria_model):
-
-    with open(filename, 'r') as file_handler:
-        for address in tqdm(json.load(file_handler), desc="Загружено", unit="адресов"):
-            save_address(
-                motlin_token,
-                pizzeria_model['flow_slug'],
-                'address',
-                address['address']['full'],
-                address={
-                    'address': address['address']['full'],
-                    'alias': address['alias'],
-                    'longitude': address['coordinates']['lon'],
-                    'latitude': address['coordinates']['lat']
-                }
-            )
-
-
-def save_address(motlin_token, slug, field, value, address):
-    entry_id = motlin_lib.get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
-    if entry_id:
-        motlin_lib.update_entry(motlin_token, slug, entry_id, address)
-    else:
-        motlin_lib.add_new_entry(motlin_token, slug, address)
 
 
 def create_parser():
@@ -116,12 +27,12 @@ def main():
     os.makedirs(TEMPORARY_IMAGE_FOLDER, exist_ok=True)
 
     try:
-        models = motlin_models.get_models(motlin_token, args.models)
+        models = motlin_lib.read_models_from_file(motlin_token, args.models)
         if args.products:
-            load_products(motlin_token, args.products)
+            motlin_lib.load_products_from_file(motlin_token, args.products, TEMPORARY_IMAGE_FOLDER)
         if args.address:
             pizzeria_model = [model for model in models if model['flow_slug'] == 'pizzeria'][0]
-            load_addresses(motlin_token, args.address, pizzeria_model)
+            motlin_lib.load_addresses_from_file(motlin_token, args.address, pizzeria_model)
     except OSError as error:
         print(f'Ошибка загрузки файла: {error}')
     except (KeyError, TypeError, ValueError) as error:

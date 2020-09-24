@@ -1,7 +1,6 @@
 
-import geo_lib
-import motlin_lib
-import motlin_load
+from libs import geo_lib
+from libs import motlin_lib
 import textwrap
 
 from datetime import datetime, timedelta
@@ -10,14 +9,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 LIMIT_PRODS_PER_PAGE = 5
 
 
-def is_courier(motlin_token, chat_id):
-    return True if motlin_lib.get_address(motlin_token, 'pizzeria', 'telegramid', chat_id) else False
-
-
 def clear_settings_and_task_queue(chat_id, params):
     params['redis_conn'].del_value(chat_id)
-    for job in params['job']._queue.queue:
-        job[1].schedule_removal()
+    for job in params['job'].jobs():
+        job.schedule_removal()
 
 
 def get_delivery_time(redis_conn, chat_id, end_of_period):
@@ -167,11 +162,9 @@ def find_nearest_address(motlin_token, longitude, latitude):
 
 
 def save_customer_phone(bot, chat_id, motlin_token, customer_phone, delete_message_id=0):
-    motlin_load.save_address(
-        motlin_token,
-        'customeraddress',
-        'customerid',
-        chat_id,
+    motlin_lib.save_address(
+        motlin_token, 'customeraddress',
+        'customerid', chat_id,
         address={
             'telephone': customer_phone,
             'customerid': chat_id
@@ -182,7 +175,7 @@ def save_customer_phone(bot, chat_id, motlin_token, customer_phone, delete_messa
 
 
 def save_customer_address(bot, chat_id, motlin_token, customer_address, longitude, latitude):
-    motlin_load.save_address(
+    motlin_lib.save_address(
         motlin_token,
         'customeraddress',
         'customerid',
@@ -246,47 +239,49 @@ def confirm_deliviry(bot, chat_id, customer_chat_id, delete_message_id=0):
     delete_messages(bot, chat_id, delete_message_id, 2)
 
 
-def update_courier_messages(bot, job):
+def show_courier_messages(bot, job):
     params_of_courier_messages = [value for value in job.context.values()]
-    chat_id, delivery_chat_id, motlin_token, customer_address, \
-        delivery_price, cash, redis_conn, delivery_time = params_of_courier_messages
-    message_id = redis_conn.get_value(delivery_chat_id, chat_id)
-    rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)
+    message_id = job.context['redis_conn'].get_value(job.context['courier_id'], job.context['chat_id'])
     if message_id:
-        reply_markup = get_courier_menu(motlin_token, chat_id)
-        cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
-        if rest_of_delivery_time > 0:
-            message = '\n'.join(
-                [
-                    cart_info,
-                    f'Сумма заказа: {amount} {currency}',
-                    f'Доставка {delivery_price} {currency}' if delivery_price else '',
-                    'Наличными при получении' if cash else '',
-                    f'Доставить через {rest_of_delivery_time} минут'
-                ]
-            )
-        else:
-            message = '\n'.join(
-                [
-                    cart_info,
-                    f'Сумма заказа: {amount} {currency}',
-                    'Доставка просрочена'
-                ]
-            )
-            job.schedule_removal()
-        bot.edit_message_text(
-            chat_id=delivery_chat_id,
-            message_id=int(message_id),
-            text=message,
-            reply_markup=reply_markup
+        update_courier_message(bot, message_id, job, params_of_courier_messages)
+    else:
+        new_courier_messages(bot, params_of_courier_messages)
+
+
+def update_courier_message(bot, message_id, job, params_of_courier_message):
+    chat_id, delivery_chat_id, motlin_token, customer_address, \
+        delivery_price, cash, redis_conn, delivery_time = params_of_courier_message
+    rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)
+    reply_markup = get_courier_menu(motlin_token, chat_id)
+    cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
+    if rest_of_delivery_time > 0:
+        message = '\n'.join(
+            [
+                cart_info,
+                f'Сумма заказа: {amount} {currency}',
+                f'Доставка {delivery_price} {currency}' if delivery_price else '',
+                'Наличными при получении' if cash else '',
+                f'Доставить через {rest_of_delivery_time} минут'
+            ]
         )
     else:
-        show_courier_messages(bot, params_of_courier_messages)
+        message = '\n'.join(
+            [
+                cart_info,
+                f'Сумма заказа: {amount} {currency}',
+                'Доставка просрочена'
+            ]
+        )
+        job.schedule_removal()
+    bot.edit_message_text(
+        chat_id=delivery_chat_id, message_id=int(message_id),
+        text=message, reply_markup=reply_markup
+    )
 
 
-def show_courier_messages(bot, params_of_courier_messages):
+def new_courier_messages(bot, params_of_courier_message):
     chat_id, delivery_chat_id, motlin_token, customer_address, \
-        delivery_price, cash, redis_conn, delivery_time = params_of_courier_messages
+        delivery_price, cash, redis_conn, delivery_time = params_of_courier_message
     rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)
     bot.send_location(chat_id=delivery_chat_id, latitude=customer_address['latitude'], longitude=customer_address['longitude'])
     reply_markup = get_courier_menu(motlin_token, chat_id)
@@ -302,8 +297,7 @@ def show_courier_messages(bot, params_of_courier_messages):
     )
     sended_message = bot.send_message(
         chat_id=delivery_chat_id,
-        text=message,
-        reply_markup=reply_markup
+        text=message, reply_markup=reply_markup
     )
     redis_conn.add_value(delivery_chat_id, chat_id, sended_message.message_id)
     redis_conn.add_value(chat_id, 'delivery_time', delivery_time.timestamp())

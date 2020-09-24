@@ -1,14 +1,13 @@
-import geo_lib
-
 import logging
-import logger_tools
 import phonenumbers
-import motlin_lib
 import os
-import redis_lib
-
 from datetime import datetime
 from dotenv import load_dotenv
+
+from libs import geo_lib
+from libs import logger_lib
+from libs import motlin_lib
+from libs import redis_lib
 
 from telegram import LabeledPrice
 from telegram.ext import Filters, Updater
@@ -16,10 +15,10 @@ from telegram.ext import PreCheckoutQueryHandler
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
 from tg_bot_events import add_product_to_cart, choose_payment_type
 from tg_bot_events import clear_settings_and_task_queue, get_delivery_time
-from tg_bot_events import delete_messages, is_courier, choose_deliviry, confirm_deliviry
-from tg_bot_events import find_nearest_address, finish_order, save_customer_phone, save_customer_address
-from tg_bot_events import show_store_menu, show_product_card, show_products_in_cart
-from tg_bot_events import show_courier_messages, show_reminder, update_courier_messages
+from tg_bot_events import delete_messages, choose_deliviry, confirm_deliviry
+from tg_bot_events import find_nearest_address, finish_order, new_courier_messages
+from tg_bot_events import save_customer_phone, save_customer_address, show_store_menu
+from tg_bot_events import show_product_card, show_products_in_cart, show_reminder, show_courier_messages
 
 
 logger = logging.getLogger('pizza_delivery_bot')
@@ -90,7 +89,7 @@ class TgDialogBot(object):
 
 
 def start(bot, update, motlin_token, params):
-    if is_courier(motlin_token, update.message.chat_id):
+    if motlin_lib.get_address(motlin_token, 'pizzeria', 'telegramid', update.message.chat_id):
         clear_settings_and_task_queue(update.message.chat_id, params)
         bot.send_message(chat_id=update.message.chat_id, text='Добро пожаловать! Ожидайте заказы на доставку!')
         return 'HANDLE_DELIVERY'
@@ -223,7 +222,7 @@ def handle_delivery(bot, update, motlin_token, params, customer_chat_id=''):
     elif pizzeria_address and delivery_type == 'COURIER_DELIVERY':
         courier_id = pizzeria_address['telegramid']
         params['job'].run_repeating(
-            update_courier_messages,
+            show_courier_messages,
             COURIER_REMINDER_PERIOD,
             first=0,
             context={
@@ -305,7 +304,7 @@ def update_handler(bot, update, motlin_token, params):
             query.message.message_id
         )
     else:
-        show_courier_messages(
+        new_courier_messages(
             bot, [
                 query.data, chat_id, motlin_token,
                 motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', query.data),
@@ -345,7 +344,7 @@ def launch_store_bot(states_functions):
 def main():
     load_dotenv()
 
-    logger_tools.initialize_logger(
+    logger_lib.initialize_logger(
         logger,
         os.getenv('TG_LOG_TOKEN'),
         os.getenv('TG_CHAT_ID')

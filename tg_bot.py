@@ -18,7 +18,8 @@ from tg_bot_events import clear_settings_and_task_queue, get_delivery_time
 from tg_bot_events import delete_messages, choose_deliviry, confirm_deliviry
 from tg_bot_events import find_nearest_address, finish_order, new_courier_messages
 from tg_bot_events import save_customer_phone, save_customer_address, show_store_menu
-from tg_bot_events import show_product_card, show_products_in_cart, show_reminder, show_courier_messages
+from tg_bot_events import show_product_card, show_products_in_cart, show_reminder
+from tg_bot_events import send_or_update_courier_messages
 
 
 logger = logging.getLogger('pizza_delivery_bot')
@@ -222,7 +223,7 @@ def handle_delivery(bot, update, motlin_token, params, customer_chat_id=''):
     elif pizzeria_address and delivery_type == 'COURIER_DELIVERY':
         courier_id = pizzeria_address['telegramid']
         params['job'].run_repeating(
-            show_courier_messages,
+            send_or_update_courier_messages,
             COURIER_REMINDER_PERIOD,
             first=0,
             context={

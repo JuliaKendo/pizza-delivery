@@ -239,13 +239,13 @@ def confirm_deliviry(bot, chat_id, customer_chat_id, delete_message_id=0):
     delete_messages(bot, chat_id, delete_message_id, 2)
 
 
-def show_courier_messages(bot, job):
+def send_or_update_courier_messages(bot, job):
     params_of_courier_messages = [value for value in job.context.values()]
     message_id = job.context['redis_conn'].get_value(job.context['courier_id'], job.context['chat_id'])
     if message_id:
         update_courier_message(bot, message_id, job, params_of_courier_messages)
     else:
-        new_courier_messages(bot, params_of_courier_messages)
+        send_courier_message(bot, params_of_courier_messages)
 
 
 def update_courier_message(bot, message_id, job, params_of_courier_message):
@@ -279,7 +279,7 @@ def update_courier_message(bot, message_id, job, params_of_courier_message):
     )
 
 
-def new_courier_messages(bot, params_of_courier_message):
+def send_courier_message(bot, params_of_courier_message):
     chat_id, delivery_chat_id, motlin_token, customer_address, \
         delivery_price, cash, redis_conn, delivery_time = params_of_courier_message
     rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)

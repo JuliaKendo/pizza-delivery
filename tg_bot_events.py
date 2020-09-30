@@ -86,6 +86,18 @@ def get_cart_menu(access_token, chat_id):
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_customers_menu(access_token, chat_id, add_continue_button=False):
+    keyboard = [
+        [
+            InlineKeyboardButton('эл. почта', callback_data='CUSTOMERS_MAIL'),
+            InlineKeyboardButton('телефон', callback_data='CUSTOMERS_PHONE')
+        ]
+    ]
+    if add_continue_button:
+        keyboard.append([InlineKeyboardButton('продолжить', callback_data='HANDLE_WAITING')])
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_delivery_menu(access_token, chat_id, delivery_price=0, only_pick_up=False):
     keyboard = [[InlineKeyboardButton('Самовывоз', callback_data='PICKUP_DELIVERY')]]
     if not only_pick_up:
@@ -102,7 +114,7 @@ def get_courier_menu(access_token, chat_id):
 def get_courier_confirmation_menu(customer_chat_id):
     keyboard = [
         [
-            InlineKeyboardButton('Да', callback_data='DELIVERED_YES'),
+            InlineKeyboardButton('Да', callback_data=f'DELIVEREDYES{customer_chat_id}'),
             InlineKeyboardButton('Нет', callback_data=customer_chat_id)
         ]
     ]
@@ -119,7 +131,7 @@ def get_payment_menu():
 
 def show_store_menu(bot, chat_id, motlin_token, delete_message_id=0, page=None):
     reply_markup = get_store_menu(motlin_token, chat_id, page)
-    bot.send_message(chat_id=chat_id, text="Please choise:", reply_markup=reply_markup)
+    bot.send_message(chat_id=chat_id, text="Пожалуйста, выберите пиццу:", reply_markup=reply_markup)
     delete_messages(bot, chat_id, delete_message_id)
 
 
@@ -155,13 +167,27 @@ def show_products_in_cart(bot, chat_id, motlin_token, delete_message_id=0):
     delete_messages(bot, chat_id, delete_message_id)
 
 
+def show_customers_menu(bot, chat_id, motlin_token, delete_message_id=0):
+    customer_address = motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', str(chat_id))
+    if customer_address:
+        reply_markup = get_customers_menu(motlin_token, chat_id, customer_address['telephone'] and customer_address['email'])
+    else:
+        reply_markup = get_customers_menu(motlin_token, chat_id)
+    bot.send_message(
+        chat_id=chat_id,
+        text='Введите контактные данные:',
+        reply_markup=reply_markup
+    )
+    delete_messages(bot, chat_id, delete_message_id)
+
+
 def find_nearest_address(motlin_token, longitude, latitude):
-    addresses = motlin_lib.get_entries(motlin_token, 'pizzeria')
+    addresses = motlin_lib.get_pizzeria_entries(motlin_token)
     geo_lib.calculate_distance(addresses, longitude, latitude)
     return min(addresses, key=lambda address: address['distance'])
 
 
-def save_customer_phone(bot, chat_id, motlin_token, customer_phone, delete_message_id=0):
+def save_customer_phone(bot, chat_id, motlin_token, customer_phone):
     motlin_lib.save_address(
         motlin_token, 'customeraddress',
         'customerid', chat_id,
@@ -170,11 +196,20 @@ def save_customer_phone(bot, chat_id, motlin_token, customer_phone, delete_messa
             'customerid': chat_id
         }
     )
-    bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
-    delete_messages(bot, chat_id, delete_message_id, 2)
 
 
-def save_customer_address(bot, chat_id, motlin_token, customer_address, longitude, latitude):
+def save_customer_email(bot, chat_id, motlin_token, customer_phone):
+    motlin_lib.save_address(
+        motlin_token, 'customeraddress',
+        'customerid', chat_id,
+        address={
+            'email': customer_phone,
+            'customerid': chat_id
+        }
+    )
+
+
+def save_customer_address(bot, chat_id, motlin_token, customer_address, longitude, latitude, address_decryption):
     motlin_lib.save_address(
         motlin_token,
         'customeraddress',
@@ -184,7 +219,10 @@ def save_customer_address(bot, chat_id, motlin_token, customer_address, longitud
             'address': customer_address,
             'longitude': longitude,
             'latitude': latitude,
-            'customerid': chat_id
+            'customerid': chat_id,
+            'country': address_decryption['CountryName'],
+            'county': address_decryption['AdministrativeAreaName'],
+            'city': address_decryption['LocalityName']
         }
     )
 
@@ -315,9 +353,14 @@ def show_reminder(bot, job):
     bot.send_message(chat_id=job.context, text=message)
 
 
-def finish_order(bot, chat_id, cash_payment=False, delete_message_id=0):
+def confirm_order(bot, chat_id, motlin_token, cash_payment=False, delete_message_id=0):
+    order_id = motlin_lib.create_order(motlin_token, chat_id)
+    if order_id:
+        transaction_id = motlin_lib.set_order_payment(motlin_token, order_id)
+        motlin_lib.confirm_order_payment(motlin_token, order_id, transaction_id)
     if cash_payment:
-        bot.send_message(chat_id=chat_id, text='Благодарим за Ваш заказ!')
+        bot.send_message(chat_id=chat_id, text='Благодарим! Ваш заказ изготавливается.')
     else:
-        bot.send_message(chat_id=chat_id, text='Спасибо за Вашу оплату!')
+        bot.send_message(chat_id=chat_id, text='Благодарим за оплату! Ваш заказ изготавливается.')
     delete_messages(bot, chat_id, delete_message_id)
+    return order_id

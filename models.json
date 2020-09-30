@@ -74,6 +74,30 @@
           "slug": "telephone",
           "description": "Telephone",
           "type": "string"
+        },
+        {
+          "name": "E-mail",
+          "slug": "email",
+          "description": "E-mail",
+          "type": "string"
+        },
+        {
+          "name": "City",
+          "slug": "city",
+          "description": "city",
+          "type": "string"
+        },
+        {
+          "name": "County",
+          "slug": "county",
+          "description": "county",
+          "type": "string"
+        },
+        {
+          "name": "Country",
+          "slug": "country",
+          "description": "country",
+          "type": "string"
         }
       ]
     }

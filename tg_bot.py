@@ -16,11 +16,12 @@ from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler
 from tg_bot_events import add_product_to_cart, choose_payment_type
 from tg_bot_events import clear_settings_and_task_queue, get_delivery_time
 from tg_bot_events import delete_messages, choose_deliviry, confirm_deliviry
-from tg_bot_events import find_nearest_address, finish_order, new_courier_messages
-from tg_bot_events import save_customer_phone, save_customer_address, show_store_menu
-from tg_bot_events import show_product_card, show_products_in_cart, show_reminder
-from tg_bot_events import send_or_update_courier_messages
+from tg_bot_events import confirm_order, find_nearest_address, send_courier_message
+from tg_bot_events import save_customer_phone, save_customer_email, save_customer_address
+from tg_bot_events import show_store_menu, show_product_card, show_products_in_cart
+from tg_bot_events import show_reminder, show_customers_menu, send_or_update_courier_messages
 
+from validate_email import validate_email
 
 logger = logging.getLogger('pizza_delivery_bot')
 
@@ -141,19 +142,53 @@ def handle_cart(bot, update, motlin_token, params):
         show_store_menu(bot, chat_id, motlin_token, query.message.message_id, current_page)
         return query.data
     elif query.data == str(chat_id):
-        bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш номер телефона')
+        show_customers_menu(bot, chat_id, motlin_token)
         delete_messages(bot, chat_id, query.message.message_id)
-        return 'WAITING_PHONE'
+        return 'HANDLE_CUSTOMERS'
     else:
         motlin_lib.delete_from_cart(motlin_token, chat_id, query.data)
         show_products_in_cart(bot, chat_id, motlin_token, query.message.message_id)
         return 'HANDLE_CART'
 
 
-def waiting_phone(bot, update, motlin_token, params):
-    if update.message.text and phonenumbers.is_valid_number(phonenumbers.parse(update.message.text, 'RU')):
-        save_customer_phone(bot, str(update.message.chat_id), motlin_token, update.message.text, update.message.message_id)
+def handle_customers(bot, update, motlin_token, redis_conn):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    if query.data == 'CUSTOMERS_MAIL':
+        bot.send_message(chat_id=chat_id, text='Ваш адрес электронной почты:')
+        delete_messages(bot, chat_id, query.message.message_id)
+        return 'WAITING_EMAIL'
+    elif query.data == 'CUSTOMERS_PHONE':
+        bot.send_message(chat_id=chat_id, text='Ваш контактный телефон:')
+        delete_messages(bot, chat_id, query.message.message_id)
+        return 'WAITING_PHONE'
+    else:
+        bot.send_message(chat_id=chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
+        delete_messages(bot, chat_id, query.message.message_id)
         return 'HANDLE_WAITING'
+
+
+def waiting_email(bot, update, motlin_token, redis_conn):
+    chat_id = update.message.chat_id
+    if update.message.text and validate_email(update.message.text):
+        save_customer_email(bot, str(update.message.chat_id), motlin_token, update.message.text)
+        if not motlin_lib.get_customer(motlin_token, 'email', update.message.text):
+            motlin_lib.add_new_customer(motlin_token, update.message.text)
+        show_customers_menu(bot, chat_id, motlin_token)
+        delete_messages(bot, chat_id, update.message.message_id, 2)
+        return 'HANDLE_CUSTOMERS'
+    else:
+        bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный email. Поробуйте еще раз:')
+        return 'WAITING_EMAIL'
+
+
+def waiting_phone(bot, update, motlin_token, params):
+    chat_id = update.message.chat_id
+    if update.message.text and phonenumbers.is_valid_number(phonenumbers.parse(update.message.text, 'RU')):
+        save_customer_phone(bot, str(update.message.chat_id), motlin_token, update.message.text)
+        show_customers_menu(bot, chat_id, motlin_token)
+        delete_messages(bot, chat_id, update.message.message_id, 2)
+        return 'HANDLE_CUSTOMERS'
     else:
         bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный номер телефона. Поробуйте еще раз:')
         delete_messages(bot, update.message.chat_id, update.message.message_id, message_numbers=2)
@@ -164,7 +199,9 @@ def handle_waiting(bot, update, motlin_token, params):
     query = update.callback_query
     longitude, latitude = None, None
     if query and query.data == 'HANDLE_MENU':
-        finish_order(bot, query.message.chat_id, query.message.message_id)
+        chat_id = query.message.chat_id
+        order_id = confirm_order(bot, chat_id, query.message.message_id)
+        params['redis_conn'].add_value(chat_id, 'order', order_id)
         return query.data
     elif query and query.data == 'HANDLE_WAITING':
         bot.send_message(chat_id=query.message.chat_id, text='Пришлите, пожалуйста, Ваш адрес или геолокацию')
@@ -183,7 +220,10 @@ def handle_waiting(bot, update, motlin_token, params):
         nearest_address = find_nearest_address(motlin_token, longitude, latitude)
         params['redis_conn'].add_value(chat_id, 'nearest_pizzeria', nearest_address['address'])
         choose_deliviry(bot, chat_id, motlin_token, nearest_address)
-        save_customer_address(bot, str(chat_id), motlin_token, customer_address, longitude, latitude)
+        save_customer_address(
+            bot, str(chat_id), motlin_token, customer_address, longitude, latitude,
+            geo_lib.fetch_address_decryption(params['ya_api_key'], longitude, latitude)
+        )
         return 'HANDLE_DELIVERY'
     else:
         bot.send_message(chat_id=update.message.chat_id, text='Вы ввели не корректный адрес или геопозицию. Поробуйте еще раз:')
@@ -250,16 +290,28 @@ def handle_delivery(bot, update, motlin_token, params, customer_chat_id=''):
 
 def handle_payment(bot, update, motlin_token, params):
     if update.message and update.message.successful_payment:
-        delivery_type = params['redis_conn'].get_value(update.message.chat_id, 'delivery_type')
-        if delivery_type == 'COURIER_DELIVERY':
+        chat_id = update.message.chat_id
+        order_id = confirm_order(bot, chat_id, motlin_token)
+        params['redis_conn'].add_value(chat_id, 'order', order_id)
+        delivery_type = params['redis_conn'].get_value(chat_id, 'delivery_type')
+        if delivery_type == 'PICKUP_DELIVERY':
+            motlin_lib.confirm_order_shipping(motlin_token, order_id)
+            motlin_lib.delete_the_cart(motlin_token, chat_id)
+            clear_settings_and_task_queue(chat_id, params)
+        else:
             handle_delivery(bot, update, motlin_token, params)
-        finish_order(bot, update.message.chat_id)
         return 'UPDATE_HANDLER'
     elif update.callback_query and update.callback_query.data == 'CASH_PAYMENT':
         chat_id = update.callback_query.message.chat_id
+        order_id = confirm_order(bot, chat_id, motlin_token, True, update.callback_query.message.message_id)
+        params['redis_conn'].add_value(chat_id, 'order', order_id)
         params['redis_conn'].add_value(chat_id, 'cash_payment', 1)
         handle_delivery(bot, update, motlin_token, params)
-        finish_order(bot, chat_id, True, update.callback_query.message.message_id)
+        delivery_type = params['redis_conn'].get_value(chat_id, 'delivery_type')
+        if delivery_type == 'PICKUP_DELIVERY':
+            motlin_lib.confirm_order_shipping(motlin_token, order_id)
+            motlin_lib.delete_the_cart(motlin_token, chat_id)
+            clear_settings_and_task_queue(chat_id, params)
         return 'UPDATE_HANDLER'
     elif update.callback_query and update.callback_query.data == 'CARD_PAYMENT':
         chat_id = update.callback_query.message.chat_id
@@ -294,9 +346,16 @@ def payment_waiting(bot, update, motlin_token, params):
 def update_handler(bot, update, motlin_token, params):
     query = update.callback_query
     chat_id = query.message.chat_id
-    if query.data == 'DELIVERED_YES':
+    if 'DELIVEREDYES' in query.data:
+        customer_chat_id = query.data.replace('DELIVEREDYES', '')
+        motlin_lib.confirm_order_shipping(
+            motlin_token,
+            params['redis_conn'].get_value(customer_chat_id, 'order')
+        )
         delete_messages(bot, chat_id, query.message.message_id)
+        motlin_lib.delete_the_cart(motlin_token, customer_chat_id)
         clear_settings_and_task_queue(chat_id, params)
+        clear_settings_and_task_queue(customer_chat_id, params)
         return 'UPDATE_HANDLER'
     elif 'DELIVEREDTO' in query.data:
         confirm_deliviry(
@@ -305,7 +364,7 @@ def update_handler(bot, update, motlin_token, params):
             query.message.message_id
         )
     else:
-        new_courier_messages(
+        send_courier_message(
             bot, [
                 query.data, chat_id, motlin_token,
                 motlin_lib.get_address(motlin_token, 'customeraddress', 'customerid', query.data),
@@ -356,6 +415,8 @@ def main():
         'HANDLE_MENU': handle_menu,
         'HANDLE_DESCRIPTION': handle_description,
         'HANDLE_CART': handle_cart,
+        'HANDLE_CUSTOMERS': handle_customers,
+        'WAITING_EMAIL': waiting_email,
         'WAITING_PHONE': waiting_phone,
         'HANDLE_WAITING': handle_waiting,
         'HANDLE_DELIVERY': handle_delivery,

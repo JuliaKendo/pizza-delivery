@@ -148,6 +148,14 @@ def delete_from_cart(access_token, cart_id, prod_id):
     response.raise_for_status()
 
 
+def delete_the_cart(access_token, cart_id):
+    response = requests.delete(
+        f'https://api.moltin.com/v2/carts/{cart_id}',
+        headers={'Authorization': access_token}
+    )
+    response.raise_for_status()
+
+
 def get_cart_items(access_token, cart_id):
     return execute_get_request(
         f'https://api.moltin.com/v2/carts/{cart_id}/items',
@@ -317,8 +325,8 @@ def update_entry(access_token, flow_slug, entry_id, fields):
     response.raise_for_status()
 
 
-def get_entries(access_token, flow_slug):
-    url = f'https://api.moltin.com/v2/flows/{flow_slug}/entries'
+def get_pizzeria_entries(access_token):
+    url = f'https://api.moltin.com/v2/flows/pizzeria/entries'
     entries = execute_get_request(
         url,
         {'Authorization': access_token}
@@ -334,13 +342,17 @@ def get_entry(access_token, flow_slug, entry_id):
     )
 
 
-def get_address(motlin_token, slug, field, value):
-    entry_id = get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
+def get_customer(access_token, field, value):
+    return get_item_id(access_token, 'customers', field=field, value=value)
+
+
+def get_address(access_token, slug, field, value):
+    entry_id = get_item_id(access_token, 'entries', slug=slug, field=field, value=value)
     if entry_id:
-        return get_entry(motlin_token, slug, entry_id)
+        return get_entry(access_token, slug, entry_id)
 
 
-def read_models_from_file(motlin_token, file_name):
+def read_models_from_file(access_token, file_name):
     models = []
     with open(file_name, 'r') as file_handler:
         models_catalog = json.load(file_handler)
@@ -348,12 +360,12 @@ def read_models_from_file(motlin_token, file_name):
     for model in models_catalog:
         model_ids = {'flow_id': '', 'flow_slug': '', 'fields': {}}
         flow_id = get_item_id(
-            motlin_token, 'flows', field='name',
+            access_token, 'flows', field='name',
             value=model['flow']['name']
         )
         if not flow_id:
             flow_id = add_new_flow(
-                motlin_token,
+                access_token,
                 model['flow']['name'],
                 model['flow']['slug'],
                 model['flow']['description']
@@ -365,7 +377,7 @@ def read_models_from_file(motlin_token, file_name):
             continue
         for field in model['fields']:
             field_id = get_item_id(
-                motlin_token,
+                access_token,
                 'fields',
                 slug=model['flow']['slug'],
                 field='slug',
@@ -374,13 +386,13 @@ def read_models_from_file(motlin_token, file_name):
             if field_id:
                 model_ids['fields'][field['name']] = field_id
                 continue
-            model_ids['fields'][field['name']] = add_new_field(motlin_token, flow_id, field)
+            model_ids['fields'][field['name']] = add_new_field(access_token, flow_id, field)
         models.append(model_ids)
 
     return models
 
 
-def load_image(motlin_token, product_id, image_folder, image_url):
+def load_image(access_token, product_id, image_folder, image_url):
     url_path = urlparse(image_url).path
     image_file = url_path.split('/')[-1]
 
@@ -390,10 +402,10 @@ def load_image(motlin_token, product_id, image_folder, image_url):
     image_path = os.path.join(image_folder, image_file)
     with open(image_path, 'wb') as file_handler:
         file_handler.write(response.content)
-    load_file(motlin_token, product_id, image_path)
+    load_file(access_token, product_id, image_path)
 
 
-def load_products_from_file(motlin_token, filename, image_folder):
+def load_products_from_file(access_token, filename, image_folder):
 
     with open(filename, 'r') as file_handler:
         products = json.load(file_handler)
@@ -417,25 +429,25 @@ def load_products_from_file(motlin_token, filename, image_folder):
             'commodity_type': 'physical'
         }
         product_id = get_item_id(
-            motlin_token, 'products',
+            access_token, 'products',
             field='sku', value=str(product['id'])
         )
         if product_id:
-            update_product(motlin_token, product_id, product_characteristic)
+            update_product(access_token, product_id, product_characteristic)
         else:
-            product_id = add_new_product(motlin_token, product_characteristic)
+            product_id = add_new_product(access_token, product_characteristic)
         if product['product_image']['url']:
-            load_image(motlin_token, product_id, image_folder, product['product_image']['url'])
+            load_image(access_token, product_id, image_folder, product['product_image']['url'])
 
 
-def load_addresses_from_file(motlin_token, filename, pizzeria_model):
+def load_addresses_from_file(access_token, filename, pizzeria_model):
 
     with open(filename, 'r') as file_handler:
         addresses = json.load(file_handler)
 
     for address in tqdm(addresses, desc="Загружено", unit="адресов"):
         save_address(
-            motlin_token,
+            access_token,
             pizzeria_model['flow_slug'],
             'address',
             address['address']['full'],
@@ -448,9 +460,102 @@ def load_addresses_from_file(motlin_token, filename, pizzeria_model):
         )
 
 
-def save_address(motlin_token, slug, field, value, address):
-    entry_id = get_item_id(motlin_token, 'entries', slug=slug, field=field, value=value)
+def save_address(access_token, slug, field, value, address):
+    entry_id = get_item_id(access_token, 'entries', slug=slug, field=field, value=value)
     if entry_id:
-        update_entry(motlin_token, slug, entry_id, address)
+        update_entry(access_token, slug, entry_id, address)
     else:
-        add_new_entry(motlin_token, slug, address)
+        add_new_entry(access_token, slug, address)
+
+
+def create_order(access_token, chat_id):
+    headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
+    customer_address = get_address(access_token, 'customeraddress', 'customerid', str(chat_id))
+    customer_id = get_customer(access_token, 'email', customer_address['email'])
+    customer_info = execute_get_request(
+        f'https://api.moltin.com/v2/customers/{customer_id}',
+        {'Authorization': access_token}
+    )
+    data = {
+        'data': {
+            'customer': {
+                'id': customer_id
+            },
+            'billing_address': {
+                'first_name': customer_info['name'],
+                'last_name': customer_info['name'],
+                'line_1': customer_address['address'],
+                'city': customer_address['city'],
+                'postcode': '0000',
+                'county': customer_address['county'],
+                'country': customer_address['country']
+            },
+            'shipping_address': {
+                'first_name': customer_info['name'],
+                'last_name': customer_info['name'],
+                'phone_number': customer_address['telephone'],
+                'line_1': customer_address['address'],
+                'postcode': '0000',
+                'county': customer_address['county'],
+                'country': customer_address['country']
+            }
+        }
+    }
+    response = requests.post(
+        f'https://api.moltin.com/v2/carts/{chat_id}/checkout',
+        headers=headers,
+        json=data
+    )
+    response.raise_for_status()
+    return response.json()['data']['id']
+
+
+def set_order_payment(access_token, order_id):
+    headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
+    data = {
+        'data': {
+            'gateway': 'manual',
+            'method': 'authorize'
+        }
+    }
+    response = requests.post(
+        f'https://api.moltin.com/v2/orders/{order_id}/payments',
+        headers=headers,
+        json=data
+    )
+    response.raise_for_status()
+    return response.json()['data']['id']
+
+
+def confirm_order_payment(access_token, order_id, transaction_id):
+    headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
+    data = {
+        'data': {
+            'gateway': 'manual',
+            'method': 'capture'
+        }
+    }
+    response = requests.post(
+        f'https://api.moltin.com/v2/orders/{order_id}/transactions/{transaction_id}/capture',
+        headers=headers,
+        json=data
+    )
+    response.raise_for_status()
+
+
+def confirm_order_shipping(access_token, order_id):
+    if not order_id:
+        return
+    headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
+    data = {
+        'data': {
+            'type': 'order',
+            'shipping': 'fulfilled'
+        }
+    }
+    response = requests.put(
+        f'https://api.moltin.com/v2/orders/{order_id}',
+        headers=headers,
+        json=data
+    )
+    response.raise_for_status()

@@ -7,3 +7,4 @@ urllib3==1.25.8
 tqdm==4.45.0
 geopy==1.21.0
 awesome-slugify==1.6.5
+validate-email==1.3

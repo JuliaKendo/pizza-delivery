@@ -39,12 +39,13 @@ pip install -r requirements.txt
 
 Запускают скрипт со следующими параметрами:
 1. `-m, --models`      Путь к *.json файлу с описанием моделей.
-2. `-p, --products`    Путь к *.json файлу с продуктами.
-3. `-a, --address`     Путь к *.json файлу с адресами.
+2. `-с, --categories`  Путь к *.json файлу с категориями продуктов.
+3. `-p, --products`    Путь к *.json файлу с продуктами.
+4. `-a, --address`     Путь к *.json файлу с адресами.
 ```
 python.exe motlin_load.py -m models.json -p menu.json -a addresses.json
 ```	
-Файл `models.json` присутствует в составе скрипта.
+Файл `models.json` и `categories.json` присутствует в составе скрипта.
 
 
 Основной скрипт бота запускают без параметров:

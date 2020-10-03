@@ -28,6 +28,7 @@ def execute_get_request(url, headers={}, data={}):
 
 def get_item_id(access_token, item_type, **kwargs):
     urls = {
+        'categories': 'https://api.moltin.com/v2/categories',
         'products': 'https://api.moltin.com/v2/products',
         'customers': 'https://api.moltin.com/v2/customers',
         'flows': 'https://api.moltin.com/v2/flows',
@@ -73,6 +74,34 @@ def update_product(access_token, product_id, product_characteristic):
         f'https://api.moltin.com/v2/products/{product_id}',
         headers={'Authorization': access_token, 'Content-Type': 'application/json'},
         json={'data': product_characteristic}
+    )
+    response.raise_for_status()
+
+
+def get_categories(access_token):
+    categories = execute_get_request(
+        f'https://api.moltin.com/v2/categories',
+        headers={'Authorization': access_token}
+    )
+    return categories
+
+
+def add_new_category(access_token, category_characteristic):
+    response = requests.post(
+        f'https://api.moltin.com/v2/categories',
+        headers={'Authorization': access_token, 'Content-Type': 'application/json'},
+        json={'data': category_characteristic}
+    )
+    response.raise_for_status()
+    return response.json()['data']['id']
+
+
+def update_category(access_token, category_id, category_characteristic):
+    category_characteristic['id'] = category_id
+    response = requests.put(
+        f'https://api.moltin.com/v2/categories/{category_id}',
+        headers={'Authorization': access_token, 'Content-Type': 'application/json'},
+        json={'data': category_characteristic}
     )
     response.raise_for_status()
 
@@ -438,6 +467,29 @@ def load_products_from_file(access_token, filename, image_folder):
             product_id = add_new_product(access_token, product_characteristic)
         if product['product_image']['url']:
             load_image(access_token, product_id, image_folder, product['product_image']['url'])
+
+
+def load_categories_from_file(access_token, filename):
+
+    with open(filename, 'r') as file_handler:
+        categories = json.load(file_handler)
+
+    for category in tqdm(categories, desc="Загружено", unit="категорий"):
+        category_characteristic = {
+            'type': 'category',
+            'name': category['name'],
+            'slug': slugify(category['name']),
+            'description': category['description'],
+            'status': 'live'
+        }
+        category_id = get_item_id(
+            access_token, 'categories',
+            field='name', value=category['name']
+        )
+        if category_id:
+            update_category(access_token, category_id, category_characteristic)
+        else:
+            category_id = add_new_category(access_token, category_characteristic)
 
 
 def load_addresses_from_file(access_token, filename, pizzeria_model):

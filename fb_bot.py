@@ -95,8 +95,29 @@ def get_menu_card(motlin_token, recipient_id):
     return menu_card
 
 
+def get_categories_card(motlin_token, recipient_id, excepted_category_slug):
+    categories = [category for category in motlin_lib.get_categories(motlin_token) if category['slug'] != excepted_category_slug]
+    category_image_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value='category.png')
+    buttons = map(
+        lambda category: {
+            'type': 'postback',
+            'title': category['name'],
+            'payload': category['id']
+        },
+        categories
+    )
+    categories_card = {
+        'title': 'Не нашли нужную пиццу?',
+        'subtitle': 'Остальные пиццы можно найти в одной из следующих категорий:',
+        'image_url': motlin_lib.get_file_link(motlin_token, category_image_id),
+        'buttons': list(buttons)
+    }
+    return categories_card
+
+
 def show_catalog(fb_token, recipient_id, motlin_token, params):
-    all_products, max_pages, page = motlin_lib.get_products(motlin_token, 0, 5)
+    category_id = motlin_lib.get_item_id(motlin_token, 'categories', field='slug', value='Populiarnye')
+    products_by_category = motlin_lib.get_products_by_category_id(motlin_token, category_id)
     products_description = map(
         lambda product: {
             'title': f'{product["name"]} ({product["price"][0]["amount"]} {product["price"][0]["currency"]})',
@@ -109,10 +130,11 @@ def show_catalog(fb_token, recipient_id, motlin_token, params):
                     'payload': product['id']
                 }
             ]
-        }, all_products
+        }, products_by_category
     )
     catalog = list(products_description)
     catalog.insert(0, get_menu_card(motlin_token, recipient_id))
+    catalog.append(get_categories_card(motlin_token, recipient_id, 'Populiarnye'))
     request_content = {
         'message': {
             'attachment': {

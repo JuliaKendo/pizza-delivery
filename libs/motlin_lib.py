@@ -59,6 +59,17 @@ def get_products(access_token, offset=0, limit_products_per_page=0):
     )
 
 
+def get_products_by_category_id(access_token, category_id):
+    response = requests.get(
+        'https://api.moltin.com/v2/products?filter=eq(category.id,%s)' % category_id,
+        headers={'Authorization': access_token}
+    )
+
+    response.raise_for_status()
+    products = response.json()
+    return products['data']
+
+
 def add_new_product(access_token, product_characteristic):
     response = requests.post(
         f'https://api.moltin.com/v2/products',

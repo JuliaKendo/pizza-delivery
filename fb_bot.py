@@ -73,7 +73,29 @@ def send_message(fb_token, recipient_id, request_content):
     response.raise_for_status()
 
 
-def show_menu(fb_token, recipient_id, motlin_token, params):
+def get_menu_card(motlin_token, recipient_id):
+    logo_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value='logo.png')
+    menu_card = {
+        'title': 'Меню',
+        'subtitle': 'Здесь вы можете выбрать один из варивнтов',
+        'image_url': motlin_lib.get_file_link(motlin_token, logo_id),
+        'buttons': [
+            {
+                'type': 'postback',
+                'title': 'Корзина',
+                'payload': recipient_id
+            },
+            {
+                'type': 'postback',
+                'title': 'Оформить заказ',
+                'payload': recipient_id
+            }
+        ]
+    }
+    return menu_card
+
+
+def show_catalog(fb_token, recipient_id, motlin_token, params):
     all_products, max_pages, page = motlin_lib.get_products(motlin_token, 0, 5)
     products_description = map(
         lambda product: {
@@ -89,14 +111,15 @@ def show_menu(fb_token, recipient_id, motlin_token, params):
             ]
         }, all_products
     )
-
+    catalog = list(products_description)
+    catalog.insert(0, get_menu_card(motlin_token, recipient_id))
     request_content = {
         'message': {
             'attachment': {
                 'type': 'template',
                 'payload': {
                     'template_type': 'generic',
-                    'elements': list(products_description)
+                    'elements': catalog
                 }
             }
         }
@@ -107,7 +130,7 @@ def show_menu(fb_token, recipient_id, motlin_token, params):
 def main():
     load_dotenv()
 
-    states_functions = {'HANDLE_MENU': show_menu}
+    states_functions = {'HANDLE_MENU': show_catalog}
 
     bot = FbDialogBot(
         os.environ['FACEBOOK_TOKEN'],

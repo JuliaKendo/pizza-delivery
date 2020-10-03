@@ -32,6 +32,7 @@ def get_item_id(access_token, item_type, **kwargs):
         'products': 'https://api.moltin.com/v2/products',
         'customers': 'https://api.moltin.com/v2/customers',
         'flows': 'https://api.moltin.com/v2/flows',
+        'files': 'https://api.moltin.com/v2/files',
         'fields': 'https://api.moltin.com/v2/flows/%s/fields',
         'entries': 'https://api.moltin.com/v2/flows/%s/entries'
     }
@@ -114,6 +115,14 @@ def load_file(access_token, product_id, image_file):
     )
     response.raise_for_status()
     add_product_image(access_token, product_id, response.json()['data']['id'])
+
+
+def get_file_link(access_token, file_id):
+    file_info = execute_get_request(
+        f'https://api.moltin.com/v2/files/{file_id}',
+        headers={'Authorization': access_token}
+    )
+    return file_info['link']['href']
 
 
 def get_quantity_product_in_stock(access_token, product_id):

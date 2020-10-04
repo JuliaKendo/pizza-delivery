@@ -9,7 +9,8 @@ from libs import redis_lib
 from flask import Flask, request
 
 from fb_bot_events import add_product_to_cart, show_notification_adding_to_cart
-from fb_bot_events import show_catalog, show_products_in_cart
+from fb_bot_events import send_message, show_catalog
+from fb_bot_events import show_products_in_cart
 
 
 START_CATEGORY_SLUG = 'Populiarnye'
@@ -92,6 +93,7 @@ def handle_description(fb_token, chat_id, motlin_token, message, params):
     if 'REMOVE_' in message:
         product_id = message.replace('REMOVE_', '')
         motlin_lib.delete_from_cart(motlin_token, chat_id, product_id)
+        send_message(fb_token, chat_id, {'message': {'text': 'пицца удалена из корзины'}})
         show_products_in_cart(fb_token, chat_id, motlin_token)
         return 'HANDLE_DESCRIPTION'
     elif 'PRODUCT_' in message:

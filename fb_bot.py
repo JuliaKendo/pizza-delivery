@@ -1,12 +1,18 @@
 import os
-import requests
 
 from datetime import datetime
 from dotenv import load_dotenv
 
 from libs import motlin_lib
+from libs import redis_lib
 
 from flask import Flask, request
+
+from fb_bot_events import add_product_to_cart, show_notification_adding_to_cart
+from fb_bot_events import show_catalog, show_products_in_cart
+
+
+START_CATEGORY_SLUG = 'Populiarnye'
 
 
 class FbDialogBot(object):
@@ -40,123 +46,85 @@ class FbDialogBot(object):
         if data["object"] == "page":
             for entry in data["entry"]:
                 for messaging_event in entry["messaging"]:
-                    if messaging_event.get("message"):
-                        self.handle_users_reply(messaging_event)
+                    self.handle_users_reply(messaging_event)
 
         return "ok", 200
 
     def handle_users_reply(self, messaging_event):
         self.update_motlin_token()
-        sender_id = messaging_event["sender"]["id"]
-        # recipient_id = messaging_event["recipient"]["id"]
-        # message_text = messaging_event["message"]["text"]
+        sender_id = messaging_event['sender']['id']
+        recipient_id = messaging_event['recipient']['id']
+        if messaging_event.get('message'):
+            message = messaging_event['message']['text']
+        elif messaging_event.get('postback'):
+            message = messaging_event['postback']['payload']
+        else:
+            return
 
-        user_state = 'HANDLE_MENU'
+        if message == '/start':
+            user_state = 'HANDLE_MENU'
+        else:
+            user_state = self.params['redis_conn'].get_value(sender_id, 'state')
+
         state_handler = self.states_functions[user_state]
-        state_handler(self.fb_token, sender_id, self.motlin_token, self.params)
+        next_state = state_handler(self.fb_token, sender_id, self.motlin_token, message, self.params)
+        self.params['redis_conn'].add_value(sender_id, 'state', next_state)
 
     def run(self):
         self.app.run(debug=True)
 
 
-def send_message(fb_token, recipient_id, request_content):
-    params = {'access_token': fb_token}
-    headers = {'Content-Type': 'application/json'}
-    request_content['recipient'] = {
-        'id': recipient_id
-    }
-
-    response = requests.post(
-        'https://graph.facebook.com/v2.6/me/messages',
-        params=params, headers=headers, json=request_content
-    )
-    response.raise_for_status()
-
-
-def get_menu_card(motlin_token, recipient_id):
-    logo_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value='logo.png')
-    menu_card = {
-        'title': 'Меню',
-        'subtitle': 'Здесь вы можете выбрать один из варивнтов',
-        'image_url': motlin_lib.get_file_link(motlin_token, logo_id),
-        'buttons': [
-            {
-                'type': 'postback',
-                'title': 'Корзина',
-                'payload': recipient_id
-            },
-            {
-                'type': 'postback',
-                'title': 'Оформить заказ',
-                'payload': recipient_id
-            }
-        ]
-    }
-    return menu_card
+def handle_menu(fb_token, chat_id, motlin_token, message, params):
+    if 'PRODUCT_' in message:
+        product_id = message.replace('PRODUCT_', '')
+        add_product_to_cart(chat_id, motlin_token, product_id)
+        show_notification_adding_to_cart(fb_token, chat_id, motlin_token, product_id)
+        return 'HANDLE_MENU'
+    elif 'CART_' in message:
+        return handle_description(fb_token, chat_id, motlin_token, message, params)
+    else:
+        current_category = message.replace('CATEGORY_', '') if 'CATEGORY_' in message else START_CATEGORY_SLUG
+        show_catalog(fb_token, chat_id, motlin_token, current_category)
+        return 'HANDLE_MENU'
 
 
-def get_categories_card(motlin_token, recipient_id, excepted_category_slug):
-    categories = [category for category in motlin_lib.get_categories(motlin_token) if category['slug'] != excepted_category_slug]
-    category_image_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value='category.png')
-    buttons = map(
-        lambda category: {
-            'type': 'postback',
-            'title': category['name'],
-            'payload': category['id']
-        },
-        categories
-    )
-    categories_card = {
-        'title': 'Не нашли нужную пиццу?',
-        'subtitle': 'Остальные пиццы можно найти в одной из следующих категорий:',
-        'image_url': motlin_lib.get_file_link(motlin_token, category_image_id),
-        'buttons': list(buttons)
-    }
-    return categories_card
-
-
-def show_catalog(fb_token, recipient_id, motlin_token, params):
-    category_id = motlin_lib.get_item_id(motlin_token, 'categories', field='slug', value='Populiarnye')
-    products_by_category = motlin_lib.get_products_by_category_id(motlin_token, category_id)
-    products_description = map(
-        lambda product: {
-            'title': f'{product["name"]} ({product["price"][0]["amount"]} {product["price"][0]["currency"]})',
-            'subtitle': product['description'],
-            'image_url': motlin_lib.get_product_info(motlin_token, product['id'])[-1],
-            'buttons': [
-                {
-                    'type': 'postback',
-                    'title': 'Положить в корзину',
-                    'payload': product['id']
-                }
-            ]
-        }, products_by_category
-    )
-    catalog = list(products_description)
-    catalog.insert(0, get_menu_card(motlin_token, recipient_id))
-    catalog.append(get_categories_card(motlin_token, recipient_id, 'Populiarnye'))
-    request_content = {
-        'message': {
-            'attachment': {
-                'type': 'template',
-                'payload': {
-                    'template_type': 'generic',
-                    'elements': catalog
-                }
-            }
-        }
-    }
-    send_message(fb_token, recipient_id, request_content)
+def handle_description(fb_token, chat_id, motlin_token, message, params):
+    if 'REMOVE_' in message:
+        product_id = message.replace('REMOVE_', '')
+        motlin_lib.delete_from_cart(motlin_token, chat_id, product_id)
+        show_products_in_cart(fb_token, chat_id, motlin_token)
+        return 'HANDLE_DESCRIPTION'
+    elif 'PRODUCT_' in message:
+        product_id = message.replace('PRODUCT_', '')
+        add_product_to_cart(chat_id, motlin_token, product_id)
+        show_products_in_cart(fb_token, chat_id, motlin_token)
+        return 'HANDLE_DESCRIPTION'
+    elif 'HANDLE_MENU' in message:
+        show_catalog(fb_token, chat_id, motlin_token, START_CATEGORY_SLUG)
+        return 'HANDLE_MENU'
+    else:
+        show_products_in_cart(fb_token, chat_id, motlin_token)
+        return 'HANDLE_DESCRIPTION'
 
 
 def main():
     load_dotenv()
 
-    states_functions = {'HANDLE_MENU': show_catalog}
+    states_functions = {
+        'HANDLE_MENU': handle_menu,
+        'HANDLE_DESCRIPTION': handle_description
+    }
+
+    redis_conn = redis_lib.RedisDb(
+        os.getenv('REDIS_HOST'),
+        os.getenv('REDIS_PORT'),
+        os.getenv('REDIS_PASSWORD')
+    )
 
     bot = FbDialogBot(
         os.environ['FACEBOOK_TOKEN'],
         states_functions,
+        redis_conn=redis_conn,
         motlin_client_id=os.getenv('MOLTIN_CLIENT_ID'),
         motlin_client_secret=os.getenv('MOLTIN_CLIENT_SECRET')
     )

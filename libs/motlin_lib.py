@@ -180,18 +180,18 @@ def get_product_info(access_token, product_id):
     )
 
 
-def put_into_cart(access_token, cart_id, prod_id, quantity=1):
+def put_into_cart(access_token, cart_id, product_id, quantity=1):
     response = requests.post(
         f'https://api.moltin.com/v2/carts/{cart_id}/items',
         headers={'Authorization': access_token, 'Content-Type': 'application/json'},
-        json={'data': {'id': prod_id, 'type': 'cart_item', 'quantity': quantity}}
+        json={'data': {'id': product_id, 'type': 'cart_item', 'quantity': quantity}}
     )
     response.raise_for_status()
 
 
-def delete_from_cart(access_token, cart_id, prod_id):
+def delete_from_cart(access_token, cart_id, product_id):
     response = requests.delete(
-        f'https://api.moltin.com/v2/carts/{cart_id}/items/{prod_id}',
+        f'https://api.moltin.com/v2/carts/{cart_id}/items/{product_id}',
         headers={'Authorization': access_token}
     )
     response.raise_for_status()
@@ -222,7 +222,7 @@ def get_cart_info(access_token, cart_id):
             cart_item['meta']['display_price']['with_tax']['value']['formatted']
         )
         cart_info.append(f'<b>{name}</b>\n<i>{description}</i>\n{quantity} шт. на сумму: {amount}')
-    cart_info.append(get_cart_amount(access_token, cart_id))
+    cart_info.append('Всего к оплате: %s' % get_cart_amount(access_token, cart_id))
     return '\n\n'.join(cart_info)
 
 
@@ -236,7 +236,7 @@ def get_cart_amount(access_token, cart_id):
         f'https://api.moltin.com/v2/carts/{cart_id}',
         headers={'Authorization': access_token}
     )
-    return 'Всего к оплате: %s' % cart_price['meta']['display_price']['with_tax']['formatted']
+    return cart_price['meta']['display_price']['with_tax']['formatted']
 
 
 def get_payment_info(access_token, cart_id):

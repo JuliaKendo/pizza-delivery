@@ -1,3 +1,4 @@
+import json
 import requests
 from libs import motlin_lib
 
@@ -105,7 +106,7 @@ def show_notification_adding_to_cart(fb_token, chat_id, motlin_token, product_id
     )
 
 
-def show_catalog(fb_token, chat_id, motlin_token, current_category_slug):
+def get_catalog_content(chat_id, motlin_token, current_category_slug):
     category_id = motlin_lib.get_item_id(motlin_token, 'categories', field='slug', value=current_category_slug)
     products_by_category = motlin_lib.get_products_by_category_id(motlin_token, category_id)
     products_description = map(
@@ -125,7 +126,7 @@ def show_catalog(fb_token, chat_id, motlin_token, current_category_slug):
     catalog = list(products_description)
     catalog.insert(0, get_menu_card(motlin_token, chat_id))
     catalog.append(get_categories_card(motlin_token, current_category_slug))
-    request_content = {
+    return {
         'message': {
             'attachment': {
                 'type': 'template',
@@ -136,6 +137,15 @@ def show_catalog(fb_token, chat_id, motlin_token, current_category_slug):
             }
         }
     }
+
+
+def show_catalog(fb_token, chat_id, motlin_token, redis_conn, current_category_slug):
+    request_content = redis_conn.get_value(chat_id, current_category_slug)
+    if not request_content:
+        request_content = get_catalog_content(chat_id, motlin_token, current_category_slug)
+        redis_conn.add_value(chat_id, current_category_slug, json.dumps(request_content))
+    else:
+        request_content = json.loads(request_content)
     send_message(fb_token, chat_id, request_content)
 
 

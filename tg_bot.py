@@ -381,19 +381,19 @@ def update_handler(bot, update, motlin_token, params):
 def launch_store_bot(states_functions):
     try:
         redis_conn = redis_lib.RedisDb(
-            os.getenv('REDIS_HOST'),
-            os.getenv('REDIS_PORT'),
-            os.getenv('REDIS_PASSWORD')
+            os.environ.get('REDIS_HOST'),
+            os.environ.get('REDIS_PORT'),
+            os.environ.get('REDIS_PASSWORD')
         )
         bot = TgDialogBot(
             os.getenv('TG_ACCESS_TOKEN'),
             states_functions,
             redis_conn=redis_conn,
-            motlin_client_id=os.getenv('MOLTIN_CLIENT_ID'),
-            motlin_client_secret=os.getenv('MOLTIN_CLIENT_SECRET'),
-            ya_api_key=os.getenv('YANDEX_API_KEY'),
-            payment_token=os.getenv('PAYMENT_TOKEN'),
-            heroku_url=os.getenv('HEROKU_URL')
+            motlin_client_id=os.environ.get('MOLTIN_CLIENT_ID'),
+            motlin_client_secret=os.environ.get('MOLTIN_CLIENT_SECRET'),
+            ya_api_key=os.environ.get('YANDEX_API_KEY'),
+            payment_token=os.environ.get('PAYMENT_TOKEN'),
+            heroku_url=os.environ.get('HEROKU_URL')
         )
         bot.start()
     except Exception as error:
@@ -406,8 +406,8 @@ def main():
 
     logger_lib.initialize_logger(
         logger,
-        os.getenv('TG_LOG_TOKEN'),
-        os.getenv('TG_CHAT_ID')
+        os.environ.get('TG_LOG_TOKEN'),
+        os.environ.get('TG_CHAT_ID')
     )
 
     states_functions = {

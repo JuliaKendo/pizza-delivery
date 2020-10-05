@@ -542,7 +542,7 @@ def save_address(access_token, slug, field, value, address):
 
 def create_order(access_token, chat_id):
     headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
-    customer_address = get_address(access_token, 'customeraddress', 'customerid', str(chat_id))
+    customer_address = get_address(access_token, 'customeraddress', 'customerid', chat_id)
     customer_id = get_customer(access_token, 'email', customer_address['email'])
     customer_info = execute_get_request(
         f'https://api.moltin.com/v2/customers/{customer_id}',

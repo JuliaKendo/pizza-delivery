@@ -65,7 +65,7 @@ class FbDialogBot(object):
 
     def handle_users_reply(self, messaging_event):
         self.update_motlin_token()
-        self.sender_id = messaging_event['sender']['id']
+        self.sender_id = f'fb{messaging_event["sender"]["id"]}'
         if messaging_event.get('message'):
             message = messaging_event['message']['text']
         elif messaging_event.get('postback'):

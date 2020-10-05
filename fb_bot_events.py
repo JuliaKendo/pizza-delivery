@@ -11,7 +11,7 @@ def send_message(fb_token, chat_id, request_content):
     params = {'access_token': fb_token}
     headers = {'Content-Type': 'application/json'}
     request_content['recipient'] = {
-        'id': chat_id
+        'id': chat_id.replace('fb', '')
     }
 
     response = requests.post(

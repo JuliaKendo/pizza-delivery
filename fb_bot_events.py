@@ -21,22 +21,22 @@ def send_message(fb_token, chat_id, request_content):
     response.raise_for_status()
 
 
-def get_menu_card(motlin_token, chat_id):
+def get_menu_card(motlin_token):
     logo_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value=FILENAME_WITH_LOGO_IMAGE)
     menu_card = {
         'title': 'Меню',
-        'subtitle': 'Здесь вы можете выбрать один из варивнтов',
+        'subtitle': 'Здесь вы можете выбрать один из вариантов',
         'image_url': motlin_lib.get_file_link(motlin_token, logo_id),
         'buttons': [
             {
                 'type': 'postback',
                 'title': 'Корзина',
-                'payload': f'CART_{chat_id}'
+                'payload': 'CART'
             },
             {
                 'type': 'postback',
                 'title': 'Оформить заказ',
-                'payload': f'ORDER_{chat_id}'
+                'payload': 'ORDER'
             }
         ]
     }
@@ -53,12 +53,12 @@ def get_cart_card(motlin_token, chat_id):
             {
                 'type': 'postback',
                 'title': 'Самовывоз',
-                'payload': f'PICKUP_DELIVERY_{chat_id}'
+                'payload': f'PICKUP_DELIVERY'
             },
             {
                 'type': 'postback',
                 'title': 'Доставка',
-                'payload': f'COURIER_DELIVERY_{chat_id}'
+                'payload': f'COURIER_DELIVERY'
             },
             {
                 'type': 'postback',
@@ -73,21 +73,18 @@ def get_cart_card(motlin_token, chat_id):
 def get_categories_card(motlin_token, excepted_category_slug):
     categories = [category for category in motlin_lib.get_categories(motlin_token) if category['slug'] != excepted_category_slug]
     category_image_id = motlin_lib.get_item_id(motlin_token, 'files', field='file_name', value=FILENAME_WITH_CATEGORY_IMAGE)
-    buttons = map(
-        lambda category: {
-            'type': 'postback',
-            'title': category['name'],
-            'payload': f'CATEGORY_{category["slug"]}'
-        },
-        categories
-    )
-    categories_card = {
+    return {
         'title': 'Не нашли нужную пиццу?',
         'subtitle': 'Остальные пиццы можно найти в одной из следующих категорий:',
         'image_url': motlin_lib.get_file_link(motlin_token, category_image_id),
-        'buttons': list(buttons)
+        'buttons': [
+            {
+                'type': 'postback',
+                'title': category['name'],
+                'payload': f'CATEGORY_{category["slug"]}'
+            } for category in categories
+        ]
     }
-    return categories_card
 
 
 def show_notification_adding_to_cart(fb_token, chat_id, motlin_token, product_id):
@@ -109,8 +106,8 @@ def show_notification_adding_to_cart(fb_token, chat_id, motlin_token, product_id
 def get_catalog_content(chat_id, motlin_token, current_category_slug):
     category_id = motlin_lib.get_item_id(motlin_token, 'categories', field='slug', value=current_category_slug)
     products_by_category = motlin_lib.get_products_by_category_id(motlin_token, category_id)
-    products_description = map(
-        lambda product: {
+    catalog = [
+        {
             'title': f'{product["name"]} ({product["price"][0]["amount"]} {product["price"][0]["currency"]})',
             'subtitle': product['description'],
             'image_url': motlin_lib.get_product_info(motlin_token, product['id'])[-1],
@@ -121,18 +118,19 @@ def get_catalog_content(chat_id, motlin_token, current_category_slug):
                     'payload': f'PRODUCT_{product["id"]}'
                 }
             ]
-        }, products_by_category
-    )
-    catalog = list(products_description)
-    catalog.insert(0, get_menu_card(motlin_token, chat_id))
-    catalog.append(get_categories_card(motlin_token, current_category_slug))
+        } for product in products_by_category
+    ]
     return {
         'message': {
             'attachment': {
                 'type': 'template',
                 'payload': {
                     'template_type': 'generic',
-                    'elements': catalog
+                    'elements': [
+                        get_menu_card(motlin_token),
+                        *catalog,
+                        get_categories_card(motlin_token, current_category_slug)
+                    ]
                 }
             }
         }

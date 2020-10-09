@@ -98,6 +98,11 @@ def get_categories(access_token):
     return categories
 
 
+def get_default_category(access_token):
+    categories = get_categories(access_token)
+    return sorted(categories, key=lambda value: len(value['slug']))[-1]['slug']
+
+
 def add_new_category(access_token, category_characteristic):
     response = requests.post(
         f'https://api.moltin.com/v2/categories',

@@ -26,8 +26,9 @@ def get_delivery_time(redis_conn, chat_id, end_of_period):
 def delete_messages(bot, chat_id, message_id, message_numbers=1):
     if not message_id:
         return
+    user_id = chat_id.replace('tg', '') if 'tg' in chat_id else str(chat_id)
     for offset_id in range(message_numbers):
-        bot.delete_message(chat_id=chat_id, message_id=int(message_id) - offset_id)
+        bot.delete_message(chat_id=user_id, message_id=int(message_id) - offset_id)
 
 
 def get_store_menu(access_token, chat_id, page=None):
@@ -63,7 +64,7 @@ def get_store_menu(access_token, chat_id, page=None):
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_product_card_menu(access_token, chat_id, product_id):
+def get_product_card_menu(access_token, product_id):
     keyboard = [
         [InlineKeyboardButton('Положить в корзину', callback_data=product_id)],
         [InlineKeyboardButton('В меню', callback_data='HANDLE_MENU')]
@@ -131,15 +132,19 @@ def get_payment_menu():
 
 def show_store_menu(bot, chat_id, motlin_token, delete_message_id=0, page=None):
     reply_markup = get_store_menu(motlin_token, chat_id, page)
-    bot.send_message(chat_id=chat_id, text="Пожалуйста, выберите пиццу:", reply_markup=reply_markup)
+    bot.send_message(
+        chat_id=chat_id.replace('tg', ''),
+        text="Пожалуйста, выберите пиццу:",
+        reply_markup=reply_markup
+    )
     delete_messages(bot, chat_id, delete_message_id)
 
 
 def show_product_card(bot, chat_id, motlin_token, product_id, delete_message_id=0):
     product_caption, product_image = motlin_lib.get_product_info(motlin_token, product_id)
-    reply_markup = get_product_card_menu(motlin_token, chat_id, product_id)
+    reply_markup = get_product_card_menu(motlin_token, product_id)
     bot.send_photo(
-        chat_id=chat_id,
+        chat_id=chat_id.replace('tg', ''),
         photo=product_image,
         caption=product_caption,
         reply_markup=reply_markup,
@@ -156,10 +161,10 @@ def add_product_to_cart(chat_id, motlin_token, product_id, query):
 
 
 def show_products_in_cart(bot, chat_id, motlin_token, delete_message_id=0):
-    cart_info = motlin_lib.get_cart_info(motlin_token, str(chat_id))
+    cart_info = motlin_lib.get_cart_info(motlin_token, chat_id)
     reply_markup = get_cart_menu(motlin_token, chat_id)
     bot.send_message(
-        chat_id=chat_id,
+        chat_id=chat_id.replace('tg', ''),
         text=cart_info,
         reply_markup=reply_markup,
         parse_mode='html'
@@ -174,7 +179,7 @@ def show_customers_menu(bot, chat_id, motlin_token, delete_message_id=0):
     else:
         reply_markup = get_customers_menu(motlin_token, chat_id)
     bot.send_message(
-        chat_id=chat_id,
+        chat_id=chat_id.replace('tg', ''),
         text='Введите контактные данные:',
         reply_markup=reply_markup
     )
@@ -231,7 +236,7 @@ def choose_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_
     if nearest_address['distance'] <= 0.5:
         reply_markup = get_delivery_menu(motlin_token, chat_id)
         bot.send_message(
-            chat_id=chat_id,
+            chat_id=chat_id.replace('tg', ''),
             text=textwrap.dedent(f'''
                 Может заберете заказ из нашей пицерии неподалеку?
                 Она всего в {int(nearest_address['distance']*1000)} метрах от Вас.
@@ -242,7 +247,7 @@ def choose_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_
     elif nearest_address['distance'] > 0.5 and nearest_address['distance'] <= 5:
         reply_markup = get_delivery_menu(motlin_token, chat_id, 100)
         bot.send_message(
-            chat_id=chat_id,
+            chat_id=chat_id.replace('tg', ''),
             text=textwrap.dedent('''
                 Похоже придется ехать до Вас на самокате.
                 Доставка будет стоить 100 RUB.
@@ -252,7 +257,7 @@ def choose_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_
     elif nearest_address['distance'] > 5 and nearest_address['distance'] <= 20:
         reply_markup = get_delivery_menu(motlin_token, chat_id, 300)
         bot.send_message(
-            chat_id=chat_id,
+            chat_id=chat_id.replace('tg', ''),
             text=textwrap.dedent('''
                 Доставка будет стоить 300 RUB.
                 Доставляем или самовывоз?'''),
@@ -261,7 +266,7 @@ def choose_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_
     else:
         reply_markup = get_delivery_menu(motlin_token, chat_id, 0, True)
         bot.send_message(
-            chat_id=chat_id,
+            chat_id=chat_id.replace('tg', ''),
             text=textwrap.dedent(f'''
                 Простите, но так далеко мы пиццу не доставим.
                 Ближайшая пиццерия находится в {int(nearest_address['distance'])} км. от вас.'''),
@@ -273,7 +278,7 @@ def choose_deliviry(bot, chat_id, motlin_token, nearest_address, delete_message_
 def confirm_deliviry(bot, chat_id, customer_chat_id, delete_message_id=0):
     reply_markup = get_courier_confirmation_menu(customer_chat_id)
     message = 'Подтвердите доставку:'
-    bot.send_message(chat_id=chat_id, text=message, reply_markup=reply_markup)
+    bot.send_message(chat_id=chat_id.replace('tg', ''), text=message, reply_markup=reply_markup)
     delete_messages(bot, chat_id, delete_message_id, 2)
 
 
@@ -289,6 +294,7 @@ def send_or_update_courier_messages(bot, job):
 def update_courier_message(bot, message_id, job, params_of_courier_message):
     chat_id, delivery_chat_id, motlin_token, customer_address, \
         delivery_price, cash, redis_conn, delivery_time = params_of_courier_message
+    courier_id = delivery_chat_id.replace('tg', '')
     rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)
     reply_markup = get_courier_menu(motlin_token, chat_id)
     cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
@@ -312,7 +318,7 @@ def update_courier_message(bot, message_id, job, params_of_courier_message):
         )
         job.schedule_removal()
     bot.edit_message_text(
-        chat_id=delivery_chat_id, message_id=int(message_id),
+        chat_id=courier_id, message_id=int(message_id),
         text=message, reply_markup=reply_markup
     )
 
@@ -320,10 +326,11 @@ def update_courier_message(bot, message_id, job, params_of_courier_message):
 def send_courier_message(bot, params_of_courier_message):
     chat_id, delivery_chat_id, motlin_token, customer_address, \
         delivery_price, cash, redis_conn, delivery_time = params_of_courier_message
+    courier_id = delivery_chat_id.replace('tg', '')
     rest_of_delivery_time = int((delivery_time - datetime.now()).seconds / 60)
-    bot.send_location(chat_id=delivery_chat_id, latitude=customer_address['latitude'], longitude=customer_address['longitude'])
+    bot.send_location(chat_id=courier_id, latitude=customer_address['latitude'], longitude=customer_address['longitude'])
     reply_markup = get_courier_menu(motlin_token, chat_id)
-    cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, str(chat_id))
+    cart_info, currency, amount = motlin_lib.get_payment_info(motlin_token, chat_id)
     message = '\n'.join(
         [
             cart_info,
@@ -333,10 +340,7 @@ def send_courier_message(bot, params_of_courier_message):
             f'Доставить через {rest_of_delivery_time} минут'
         ]
     )
-    sended_message = bot.send_message(
-        chat_id=delivery_chat_id,
-        text=message, reply_markup=reply_markup
-    )
+    sended_message = bot.send_message(chat_id=courier_id, text=message, reply_markup=reply_markup)
     redis_conn.add_value(delivery_chat_id, chat_id, sended_message.message_id)
     redis_conn.add_value(chat_id, 'delivery_time', delivery_time.timestamp())
 
@@ -344,23 +348,24 @@ def send_courier_message(bot, params_of_courier_message):
 def choose_payment_type(bot, chat_id, delete_message_id=0):
     reply_markup = get_payment_menu()
     message = 'Выберите вид оплаты:'
-    bot.send_message(chat_id=chat_id, text=message, reply_markup=reply_markup)
+    bot.send_message(chat_id=chat_id.replace('tg', ''), text=message, reply_markup=reply_markup)
     delete_messages(bot, chat_id, delete_message_id)
 
 
 def show_reminder(bot, job):
     message = 'Приятного аппетита!\n\nЕсли у вас еще нет пиццы, мы обязательно скоро привезем ее!'
-    bot.send_message(chat_id=job.context, text=message)
+    bot.send_message(chat_id=job.context.replace('tg', ''), text=message)
 
 
 def confirm_order(bot, chat_id, motlin_token, cash_payment=False, delete_message_id=0):
+    user_id = chat_id.replace('tg', '')
     order_id = motlin_lib.create_order(motlin_token, chat_id)
     if order_id:
         transaction_id = motlin_lib.set_order_payment(motlin_token, order_id)
         motlin_lib.confirm_order_payment(motlin_token, order_id, transaction_id)
     if cash_payment:
-        bot.send_message(chat_id=chat_id, text='Благодарим! Ваш заказ изготавливается.')
+        bot.send_message(chat_id=user_id, text='Благодарим! Ваш заказ изготавливается.')
     else:
-        bot.send_message(chat_id=chat_id, text='Благодарим за оплату! Ваш заказ изготавливается.')
+        bot.send_message(chat_id=user_id, text='Благодарим за оплату! Ваш заказ изготавливается.')
     delete_messages(bot, chat_id, delete_message_id)
     return order_id

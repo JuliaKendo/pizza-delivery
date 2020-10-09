@@ -28,9 +28,11 @@ def execute_get_request(url, headers={}, data={}):
 
 def get_item_id(access_token, item_type, **kwargs):
     urls = {
+        'categories': 'https://api.moltin.com/v2/categories',
         'products': 'https://api.moltin.com/v2/products',
         'customers': 'https://api.moltin.com/v2/customers',
         'flows': 'https://api.moltin.com/v2/flows',
+        'files': 'https://api.moltin.com/v2/files',
         'fields': 'https://api.moltin.com/v2/flows/%s/fields',
         'entries': 'https://api.moltin.com/v2/flows/%s/entries'
     }
@@ -57,6 +59,17 @@ def get_products(access_token, offset=0, limit_products_per_page=0):
     )
 
 
+def get_products_by_category_id(access_token, category_id):
+    response = requests.get(
+        'https://api.moltin.com/v2/products?filter=eq(category.id,%s)' % category_id,
+        headers={'Authorization': access_token}
+    )
+
+    response.raise_for_status()
+    products = response.json()
+    return products['data']
+
+
 def add_new_product(access_token, product_characteristic):
     response = requests.post(
         f'https://api.moltin.com/v2/products',
@@ -77,6 +90,39 @@ def update_product(access_token, product_id, product_characteristic):
     response.raise_for_status()
 
 
+def get_categories(access_token):
+    categories = execute_get_request(
+        f'https://api.moltin.com/v2/categories',
+        headers={'Authorization': access_token}
+    )
+    return categories
+
+
+def get_default_category(access_token):
+    categories = get_categories(access_token)
+    return sorted(categories, key=lambda value: len(value['slug']))[-1]['slug']
+
+
+def add_new_category(access_token, category_characteristic):
+    response = requests.post(
+        f'https://api.moltin.com/v2/categories',
+        headers={'Authorization': access_token, 'Content-Type': 'application/json'},
+        json={'data': category_characteristic}
+    )
+    response.raise_for_status()
+    return response.json()['data']['id']
+
+
+def update_category(access_token, category_id, category_characteristic):
+    category_characteristic['id'] = category_id
+    response = requests.put(
+        f'https://api.moltin.com/v2/categories/{category_id}',
+        headers={'Authorization': access_token, 'Content-Type': 'application/json'},
+        json={'data': category_characteristic}
+    )
+    response.raise_for_status()
+
+
 def load_file(access_token, product_id, image_file):
     response = requests.post(
         f'https://api.moltin.com/v2/files',
@@ -85,6 +131,14 @@ def load_file(access_token, product_id, image_file):
     )
     response.raise_for_status()
     add_product_image(access_token, product_id, response.json()['data']['id'])
+
+
+def get_file_link(access_token, file_id):
+    file_info = execute_get_request(
+        f'https://api.moltin.com/v2/files/{file_id}',
+        headers={'Authorization': access_token}
+    )
+    return file_info['link']['href']
 
 
 def get_quantity_product_in_stock(access_token, product_id):
@@ -131,18 +185,18 @@ def get_product_info(access_token, product_id):
     )
 
 
-def put_into_cart(access_token, cart_id, prod_id, quantity=1):
+def put_into_cart(access_token, cart_id, product_id, quantity=1):
     response = requests.post(
         f'https://api.moltin.com/v2/carts/{cart_id}/items',
         headers={'Authorization': access_token, 'Content-Type': 'application/json'},
-        json={'data': {'id': prod_id, 'type': 'cart_item', 'quantity': quantity}}
+        json={'data': {'id': product_id, 'type': 'cart_item', 'quantity': quantity}}
     )
     response.raise_for_status()
 
 
-def delete_from_cart(access_token, cart_id, prod_id):
+def delete_from_cart(access_token, cart_id, product_id):
     response = requests.delete(
-        f'https://api.moltin.com/v2/carts/{cart_id}/items/{prod_id}',
+        f'https://api.moltin.com/v2/carts/{cart_id}/items/{product_id}',
         headers={'Authorization': access_token}
     )
     response.raise_for_status()
@@ -173,7 +227,7 @@ def get_cart_info(access_token, cart_id):
             cart_item['meta']['display_price']['with_tax']['value']['formatted']
         )
         cart_info.append(f'<b>{name}</b>\n<i>{description}</i>\n{quantity} шт. на сумму: {amount}')
-    cart_info.append(get_cart_amount(access_token, cart_id))
+    cart_info.append('Всего к оплате: %s' % get_cart_amount(access_token, cart_id))
     return '\n\n'.join(cart_info)
 
 
@@ -187,7 +241,7 @@ def get_cart_amount(access_token, cart_id):
         f'https://api.moltin.com/v2/carts/{cart_id}',
         headers={'Authorization': access_token}
     )
-    return 'Всего к оплате: %s' % cart_price['meta']['display_price']['with_tax']['formatted']
+    return cart_price['meta']['display_price']['with_tax']['formatted']
 
 
 def get_payment_info(access_token, cart_id):
@@ -440,6 +494,29 @@ def load_products_from_file(access_token, filename, image_folder):
             load_image(access_token, product_id, image_folder, product['product_image']['url'])
 
 
+def load_categories_from_file(access_token, filename):
+
+    with open(filename, 'r') as file_handler:
+        categories = json.load(file_handler)
+
+    for category in tqdm(categories, desc="Загружено", unit="категорий"):
+        category_characteristic = {
+            'type': 'category',
+            'name': category['name'],
+            'slug': slugify(category['name']),
+            'description': category['description'],
+            'status': 'live'
+        }
+        category_id = get_item_id(
+            access_token, 'categories',
+            field='name', value=category['name']
+        )
+        if category_id:
+            update_category(access_token, category_id, category_characteristic)
+        else:
+            category_id = add_new_category(access_token, category_characteristic)
+
+
 def load_addresses_from_file(access_token, filename, pizzeria_model):
 
     with open(filename, 'r') as file_handler:
@@ -470,7 +547,7 @@ def save_address(access_token, slug, field, value, address):
 
 def create_order(access_token, chat_id):
     headers = {'Authorization': access_token, 'Content-Type': 'application/json'}
-    customer_address = get_address(access_token, 'customeraddress', 'customerid', str(chat_id))
+    customer_address = get_address(access_token, 'customeraddress', 'customerid', chat_id)
     customer_id = get_customer(access_token, 'email', customer_address['email'])
     customer_info = execute_get_request(
         f'https://api.moltin.com/v2/customers/{customer_id}',
